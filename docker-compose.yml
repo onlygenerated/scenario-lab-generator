@@ -1,0 +1,31 @@
+# Development: runs backend + frontend
+# Usage: docker compose up
+# Note: lab containers are spun up separately by the backend via python-on-whales
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./templates:/app/templates
+      - ./demo:/app/demo
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
+    environment:
+      - LAB_BASE_DIR=/app/lab_workspaces
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - backend

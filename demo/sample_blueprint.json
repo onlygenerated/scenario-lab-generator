@@ -1,0 +1,153 @@
+{
+  "title": "Retail Sales Pipeline: Daily Revenue Summary",
+  "description": "Build an ETL pipeline that transforms raw point-of-sale transaction data and product catalog information into a daily revenue summary by product category. This scenario practices JOIN operations, date extraction, aggregation, and data cleaning.",
+  "difficulty": "intermediate",
+  "estimated_minutes": 45,
+  "learning_objectives": [
+    "Join multiple source tables on foreign keys",
+    "Handle NULL values and data quality issues",
+    "Perform date-based grouping with DATE_TRUNC or EXTRACT",
+    "Aggregate monetary values correctly with SUM and COUNT",
+    "Load transformed results into a target schema"
+  ],
+  "business_context": "You work as a data engineer at ShopSmart, a mid-size retail chain. The analytics team needs a daily revenue summary broken down by product category to feed their demand forecasting dashboard. Raw transaction data lands in the source system from POS terminals overnight. Your job is to build the transformation that produces the summary table the analysts need.",
+  "source_tables": [
+    {
+      "table_name": "transactions",
+      "description": "Raw point-of-sale transaction records from store terminals",
+      "columns": [
+        {"name": "transaction_id", "data_type": "SERIAL", "nullable": false, "is_primary_key": true, "description": "Auto-incrementing transaction identifier"},
+        {"name": "product_id", "data_type": "INTEGER", "nullable": false, "is_primary_key": false, "description": "Foreign key to products table"},
+        {"name": "quantity", "data_type": "INTEGER", "nullable": false, "is_primary_key": false, "description": "Number of units sold"},
+        {"name": "unit_price", "data_type": "NUMERIC(12,2)", "nullable": false, "is_primary_key": false, "description": "Price per unit at time of sale"},
+        {"name": "transaction_date", "data_type": "TIMESTAMP", "nullable": false, "is_primary_key": false, "description": "When the transaction occurred"},
+        {"name": "store_id", "data_type": "INTEGER", "nullable": true, "is_primary_key": false, "description": "Store identifier (NULL for online orders)"}
+      ],
+      "sample_data": [
+        {"transaction_id": 1, "product_id": 101, "quantity": 2, "unit_price": 29.99, "transaction_date": "2024-01-15 10:23:00", "store_id": 1},
+        {"transaction_id": 2, "product_id": 102, "quantity": 1, "unit_price": 49.99, "transaction_date": "2024-01-15 11:05:00", "store_id": 1},
+        {"transaction_id": 3, "product_id": 103, "quantity": 5, "unit_price": 9.99, "transaction_date": "2024-01-15 14:30:00", "store_id": 2},
+        {"transaction_id": 4, "product_id": 101, "quantity": 1, "unit_price": 29.99, "transaction_date": "2024-01-16 09:15:00", "store_id": null},
+        {"transaction_id": 5, "product_id": 104, "quantity": 3, "unit_price": 19.99, "transaction_date": "2024-01-16 10:45:00", "store_id": 2},
+        {"transaction_id": 6, "product_id": 102, "quantity": 2, "unit_price": 49.99, "transaction_date": "2024-01-16 13:20:00", "store_id": 1},
+        {"transaction_id": 7, "product_id": 105, "quantity": 1, "unit_price": 99.99, "transaction_date": "2024-01-16 15:00:00", "store_id": 3},
+        {"transaction_id": 8, "product_id": 103, "quantity": 10, "unit_price": 9.99, "transaction_date": "2024-01-17 08:30:00", "store_id": 1},
+        {"transaction_id": 9, "product_id": 101, "quantity": 4, "unit_price": 29.99, "transaction_date": "2024-01-17 12:00:00", "store_id": 2},
+        {"transaction_id": 10, "product_id": 106, "quantity": 2, "unit_price": 14.99, "transaction_date": "2024-01-17 16:45:00", "store_id": null}
+      ]
+    },
+    {
+      "table_name": "products",
+      "description": "Product catalog with category assignments",
+      "columns": [
+        {"name": "product_id", "data_type": "SERIAL", "nullable": false, "is_primary_key": true, "description": "Product identifier"},
+        {"name": "product_name", "data_type": "VARCHAR(255)", "nullable": false, "is_primary_key": false, "description": "Display name of the product"},
+        {"name": "category", "data_type": "VARCHAR(255)", "nullable": false, "is_primary_key": false, "description": "Product category for grouping"},
+        {"name": "is_active", "data_type": "BOOLEAN", "nullable": false, "is_primary_key": false, "description": "Whether the product is currently sold"}
+      ],
+      "sample_data": [
+        {"product_id": 101, "product_name": "Wireless Mouse", "category": "Electronics", "is_active": true},
+        {"product_id": 102, "product_name": "USB-C Hub", "category": "Electronics", "is_active": true},
+        {"product_id": 103, "product_name": "Notebook A5", "category": "Stationery", "is_active": true},
+        {"product_id": 104, "product_name": "Desk Lamp", "category": "Home Office", "is_active": true},
+        {"product_id": 105, "product_name": "Standing Desk Mat", "category": "Home Office", "is_active": true},
+        {"product_id": 106, "product_name": "Pen Set (Discontinued)", "category": "Stationery", "is_active": false}
+      ]
+    }
+  ],
+  "target_tables": [
+    {
+      "table_name": "daily_category_revenue",
+      "description": "Daily revenue summary grouped by product category — only active products included",
+      "columns": [
+        {"name": "revenue_date", "data_type": "DATE", "nullable": false, "is_primary_key": false, "description": "The date (truncated from transaction timestamps)"},
+        {"name": "category", "data_type": "VARCHAR(255)", "nullable": false, "is_primary_key": false, "description": "Product category"},
+        {"name": "total_revenue", "data_type": "NUMERIC(12,2)", "nullable": false, "is_primary_key": false, "description": "SUM(quantity * unit_price) for the day and category"},
+        {"name": "total_units_sold", "data_type": "INTEGER", "nullable": false, "is_primary_key": false, "description": "SUM(quantity) for the day and category"},
+        {"name": "transaction_count", "data_type": "INTEGER", "nullable": false, "is_primary_key": false, "description": "COUNT of transactions for the day and category"}
+      ]
+    }
+  ],
+  "transformation_steps": [
+    {
+      "step_number": 1,
+      "title": "Connect to Source and Target Databases",
+      "description": "Create SQLAlchemy connections to both the source database (source-db:5432/source_db) and the target database (target-db:5432/target_db). Use the credentials provided in the getting_started notebook.",
+      "hint": "Use sqlalchemy.create_engine() with postgresql://user:password@hostname:5432/dbname",
+      "skill_tags": ["DATABASE_CONNECTION"]
+    },
+    {
+      "step_number": 2,
+      "title": "Extract Source Data",
+      "description": "Read the 'transactions' and 'products' tables from the source database into pandas DataFrames.",
+      "hint": "Use pd.read_sql_table() or pd.read_sql_query() with your source engine.",
+      "skill_tags": ["EXTRACTION"]
+    },
+    {
+      "step_number": 3,
+      "title": "Join Transactions with Products",
+      "description": "Perform an INNER JOIN between transactions and products on product_id. This will automatically exclude transactions for products that don't exist in the catalog.",
+      "hint": "Use pd.merge(transactions, products, on='product_id', how='inner')",
+      "skill_tags": ["JOIN"]
+    },
+    {
+      "step_number": 4,
+      "title": "Filter Active Products Only",
+      "description": "Remove rows where is_active is False. The business rule is that discontinued products should not appear in the revenue summary.",
+      "hint": "Filter the DataFrame: df = df[df['is_active'] == True]",
+      "skill_tags": ["FILTERING", "CLEANING"]
+    },
+    {
+      "step_number": 5,
+      "title": "Calculate Revenue and Extract Date",
+      "description": "Create a 'line_revenue' column (quantity * unit_price) and extract the date portion from transaction_date into a 'revenue_date' column.",
+      "hint": "df['line_revenue'] = df['quantity'] * df['unit_price']; df['revenue_date'] = pd.to_datetime(df['transaction_date']).dt.date",
+      "skill_tags": ["TRANSFORMATION", "DATE_HANDLING"]
+    },
+    {
+      "step_number": 6,
+      "title": "Aggregate by Date and Category",
+      "description": "Group by revenue_date and category. Calculate total_revenue (sum of line_revenue), total_units_sold (sum of quantity), and transaction_count (count of transactions).",
+      "hint": "Use df.groupby(['revenue_date', 'category']).agg({...}).reset_index()",
+      "skill_tags": ["AGGREGATION", "GROUPBY"]
+    },
+    {
+      "step_number": 7,
+      "title": "Load into Target Database",
+      "description": "Write the aggregated DataFrame to the 'daily_category_revenue' table in the target database. Use 'append' mode since the target table already exists.",
+      "hint": "Use df.to_sql('daily_category_revenue', target_engine, if_exists='append', index=False)",
+      "skill_tags": ["LOADING"]
+    }
+  ],
+  "validation_queries": [
+    {
+      "query_name": "Row count check",
+      "sql": "SELECT revenue_date, category, total_revenue, total_units_sold, transaction_count FROM daily_category_revenue ORDER BY revenue_date, category",
+      "expected_row_count": 7,
+      "expected_columns": ["revenue_date", "category", "total_revenue", "total_units_sold", "transaction_count"],
+      "description": "Verify the correct number of date-category combinations exist (3 dates x 2-3 categories, minus the discontinued product filter = 7 rows)"
+    },
+    {
+      "query_name": "Electronics Jan 15 revenue",
+      "sql": "SELECT total_revenue, total_units_sold, transaction_count FROM daily_category_revenue WHERE category = 'Electronics' AND revenue_date = '2024-01-15'",
+      "expected_row_count": 1,
+      "expected_columns": ["total_revenue", "total_units_sold", "transaction_count"],
+      "description": "Verify Electronics revenue on Jan 15: (2 * 29.99) + (1 * 49.99) = 109.97, 3 units, 2 transactions"
+    },
+    {
+      "query_name": "Discontinued products excluded",
+      "sql": "SELECT COUNT(*) AS cnt FROM daily_category_revenue WHERE category = 'Stationery' AND revenue_date = '2024-01-17'",
+      "expected_row_count": 1,
+      "expected_columns": ["cnt"],
+      "description": "Verify that Jan 17 Stationery only includes Notebook A5 (active) and NOT Pen Set (discontinued). There should be one row for Stationery on Jan 17."
+    },
+    {
+      "query_name": "No NULL categories",
+      "sql": "SELECT COUNT(*) AS null_count FROM daily_category_revenue WHERE category IS NULL",
+      "expected_row_count": 1,
+      "expected_columns": ["null_count"],
+      "description": "Verify no NULL categories exist in the output (the INNER JOIN with products should prevent this)"
+    }
+  ],
+  "lab_instructions": "# Retail Sales Pipeline: Daily Revenue Summary\n\n## Scenario\n\nYou work as a data engineer at **ShopSmart**, a mid-size retail chain. The analytics team needs a daily revenue summary broken down by product category to feed their demand forecasting dashboard.\n\nRaw transaction data lands in the source system from POS terminals overnight. Your job is to build the transformation that produces the summary table the analysts need.\n\n## Your Task\n\nTransform raw `transactions` and `products` data from the **source database** into a `daily_category_revenue` summary in the **target database**.\n\n### Business Rules\n- Only include **active** products (`is_active = TRUE`)\n- Revenue = `quantity × unit_price`\n- Group by **date** (not timestamp) and **product category**\n- Calculate: total revenue, total units sold, and transaction count per group\n\n## Database Connections\n\n| Database | Host | Port | Database | User | Password |\n|----------|------|------|----------|------|----------|\n| Source | `source-db` | `5432` | `source_db` | `labuser` | `labpass` |\n| Target | `target-db` | `5432` | `target_db` | `labuser` | `labpass` |\n\n## Source Tables\n\n### `transactions`\n| Column | Type | Description |\n|--------|------|-------------|\n| transaction_id | SERIAL (PK) | Auto-incrementing ID |\n| product_id | INTEGER | FK to products |\n| quantity | INTEGER | Units sold |\n| unit_price | NUMERIC(12,2) | Price per unit |\n| transaction_date | TIMESTAMP | When the sale occurred |\n| store_id | INTEGER | Store ID (NULL for online) |\n\n### `products`\n| Column | Type | Description |\n|--------|------|-------------|\n| product_id | SERIAL (PK) | Product ID |\n| product_name | VARCHAR(255) | Product display name |\n| category | VARCHAR(255) | Product category |\n| is_active | BOOLEAN | Currently sold? |\n\n## Target Table\n\n### `daily_category_revenue`\n| Column | Type | Description |\n|--------|------|-------------|\n| revenue_date | DATE | The date |\n| category | VARCHAR(255) | Product category |\n| total_revenue | NUMERIC(12,2) | Sum of quantity × unit_price |\n| total_units_sold | INTEGER | Sum of quantity |\n| transaction_count | INTEGER | Count of transactions |\n\n## Steps\n\n1. **Connect** to both databases using SQLAlchemy\n2. **Extract** the transactions and products tables into DataFrames\n3. **Join** transactions with products on `product_id`\n4. **Filter** to active products only\n5. **Calculate** line revenue and extract the date\n6. **Aggregate** by date and category\n7. **Load** the result into the target database\n\n## Tips\n\n- The `getting_started.ipynb` notebook has connection code ready to use\n- Use `pd.to_datetime()` to convert timestamps, then `.dt.date` to extract the date\n- Remember to use `if_exists='append'` when writing to the target table\n- Check your work with the **Validate** button when you're done!\n"
+}
