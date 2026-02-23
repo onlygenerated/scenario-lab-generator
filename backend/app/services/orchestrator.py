@@ -17,6 +17,7 @@ from python_on_whales import DockerClient
 from ..config import settings
 from ..models.blueprint import ScenarioBlueprint
 from ..models.lab import LabSession, LabStatus
+from .notebook_generator import generate_notebook, generate_solution_notebook
 from .seed_generator import generate_source_sql, generate_target_sql
 
 # Track allocated ports to avoid collisions
@@ -73,15 +74,16 @@ def _prepare_lab_directory(lab_id: str, blueprint: ScenarioBlueprint, jupyter_po
     jupyter_dir.mkdir(exist_ok=True)
     shutil.copy2(_TEMPLATES_DIR / "jupyter" / "Dockerfile", jupyter_dir / "Dockerfile")
 
-    # Copy workspace (starter notebook) and add instructions
+    # Generate workspace: dynamic notebook from blueprint + instructions
     workspace_dir = lab_dir / "workspace"
     workspace_dir.mkdir(exist_ok=True)
-    shutil.copy2(
-        _TEMPLATES_DIR / "workspace" / "getting_started.ipynb",
-        workspace_dir / "getting_started.ipynb",
-    )
 
-    # Write lab instructions as a Markdown file in the workspace
+    notebook_json = generate_notebook(blueprint)
+    (workspace_dir / "getting_started.ipynb").write_text(notebook_json, encoding="utf-8")
+
+    solution_json = generate_solution_notebook(blueprint)
+    (workspace_dir / "solution.ipynb").write_text(solution_json, encoding="utf-8")
+
     (workspace_dir / "INSTRUCTIONS.md").write_text(
         blueprint.lab_instructions, encoding="utf-8"
     )

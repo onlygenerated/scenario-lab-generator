@@ -123,9 +123,9 @@
     {
       "query_name": "Row count check",
       "sql": "SELECT revenue_date, category, total_revenue, total_units_sold, transaction_count FROM daily_category_revenue ORDER BY revenue_date, category",
-      "expected_row_count": 7,
+      "expected_row_count": 6,
       "expected_columns": ["revenue_date", "category", "total_revenue", "total_units_sold", "transaction_count"],
-      "description": "Verify the correct number of date-category combinations exist (3 dates x 2-3 categories, minus the discontinued product filter = 7 rows)"
+      "description": "Verify the correct number of date-category combinations exist (3 dates x 2 categories each = 6 rows, after excluding discontinued products)"
     },
     {
       "query_name": "Electronics Jan 15 revenue",

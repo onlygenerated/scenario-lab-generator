@@ -5,8 +5,7 @@ import { StepIndicator } from '../components/StepIndicator';
 import type { WorkflowStep } from '../components/StepIndicator';
 import { ScenarioForm } from '../components/ScenarioForm';
 import { BlueprintViewer } from '../components/BlueprintViewer';
-import { LabStatus } from '../components/LabStatus';
-import { InstructionsViewer } from '../components/InstructionsViewer';
+import { LabWorkspace } from '../components/LabWorkspace';
 import { ValidationResults } from '../components/ValidationResults';
 
 export function Dashboard() {
@@ -20,7 +19,28 @@ export function Dashboard() {
   const [jupyterUrl, setJupyterUrl] = useState<string | null>(null);
   const [validationResults, setValidationResults] = useState<ValidationResult[] | null>(null);
   const [allPassed, setAllPassed] = useState(false);
-  const [showInstructions, setShowInstructions] = useState(false);
+
+  // Pre-launched lab from self-test (reused on "Launch Lab")
+  const [prelaunchedLabId, setPrelaunchedLabId] = useState<string | null>(null);
+  const [prelaunchedJupyterUrl, setPrelaunchedJupyterUrl] = useState<string | null>(null);
+
+  const runSelfTest = async (bp: ScenarioBlueprint) => {
+    setStep('SELF_TESTING');
+    try {
+      const result = await api.selfTest(bp);
+      if (result.passed && result.lab_id) {
+        setPrelaunchedLabId(result.lab_id);
+        setPrelaunchedJupyterUrl(result.jupyter_url);
+        setStep('REVIEW');
+      } else {
+        setError(result.error || 'Self-test failed — scenario may have bugs');
+        setStep('CONFIGURE');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Self-test failed');
+      setStep('CONFIGURE');
+    }
+  };
 
   const handleGenerate = async (request: GenerateRequest) => {
     setLoading(true);
@@ -29,7 +49,7 @@ export function Dashboard() {
     try {
       const response = await api.generateScenario(request);
       setBlueprint(response.blueprint);
-      setStep('REVIEW');
+      await runSelfTest(response.blueprint);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Generation failed');
       setStep('CONFIGURE');
@@ -45,7 +65,7 @@ export function Dashboard() {
     try {
       const response = await api.getDemoBlueprint();
       setBlueprint(response.blueprint);
-      setStep('REVIEW');
+      await runSelfTest(response.blueprint);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load demo');
       setStep('CONFIGURE');
@@ -56,6 +76,19 @@ export function Dashboard() {
 
   const handleLaunch = async () => {
     if (!blueprint) return;
+
+    // If we have a pre-launched lab from self-test, reuse it (instant)
+    if (prelaunchedLabId) {
+      setLabId(prelaunchedLabId);
+      setLabStatus('running');
+      setJupyterUrl(prelaunchedJupyterUrl);
+      setPrelaunchedLabId(null);
+      setPrelaunchedJupyterUrl(null);
+      setStep('RUNNING');
+      return;
+    }
+
+    // Fallback: normal launch (no self-test ran, or self-test lab was cleaned up)
     setLoading(true);
     setError(null);
     setStep('LAUNCHING');
@@ -107,7 +140,16 @@ export function Dashboard() {
     }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
+    // Clean up pre-launched lab if it exists
+    if (prelaunchedLabId) {
+      try {
+        await api.stopLab(prelaunchedLabId);
+      } catch {
+        // Best effort cleanup
+      }
+    }
+
     setStep('CONFIGURE');
     setBlueprint(null);
     setLabId(null);
@@ -116,11 +158,9 @@ export function Dashboard() {
     setValidationResults(null);
     setAllPassed(false);
     setError(null);
-    setShowInstructions(false);
+    setPrelaunchedLabId(null);
+    setPrelaunchedJupyterUrl(null);
   };
-
-  // Effective step for the indicator (don't show instructions sub-view)
-  const effectiveStep = showInstructions ? 'RUNNING' : step;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -144,7 +184,7 @@ export function Dashboard() {
 
       {/* Step Indicator */}
       <div className="max-w-5xl mx-auto px-6 pt-6">
-        <StepIndicator currentStep={effectiveStep} />
+        <StepIndicator currentStep={step} />
       </div>
 
       {/* Error Banner */}
@@ -166,12 +206,13 @@ export function Dashboard() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-6 pb-12">
-        {/* Loading overlay for generating/launching */}
-        {(step === 'GENERATING' || step === 'LAUNCHING' || step === 'VALIDATING') && loading && (
+        {/* Loading overlay for generating/self-testing/launching/validating */}
+        {(step === 'GENERATING' || step === 'SELF_TESTING' || step === 'LAUNCHING' || step === 'VALIDATING') && loading && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
             <p className="text-sm text-gray-500">
               {step === 'GENERATING' && 'Generating your scenario...'}
+              {step === 'SELF_TESTING' && 'Testing scenario...'}
               {step === 'LAUNCHING' && 'Starting lab environment...'}
               {step === 'VALIDATING' && 'Checking your work...'}
             </p>
@@ -199,23 +240,15 @@ export function Dashboard() {
         )}
 
         {/* Running */}
-        {step === 'RUNNING' && labId && !showInstructions && (
-          <LabStatus
+        {step === 'RUNNING' && labId && blueprint && (
+          <LabWorkspace
+            blueprint={blueprint}
             labId={labId}
             status={labStatus}
             jupyterUrl={jupyterUrl}
             onValidate={handleValidate}
             onStop={handleStop}
-            onViewInstructions={() => setShowInstructions(true)}
             loading={loading}
-          />
-        )}
-
-        {/* Instructions */}
-        {showInstructions && blueprint && (
-          <InstructionsViewer
-            markdown={blueprint.lab_instructions}
-            onClose={() => setShowInstructions(false)}
           />
         )}
 

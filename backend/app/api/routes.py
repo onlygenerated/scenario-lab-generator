@@ -15,6 +15,8 @@ from ..models.api_models import (
     LabStatusResponse,
     LaunchRequest,
     LaunchResponse,
+    SelfTestRequest,
+    SelfTestResponse,
     StopResponse,
     ValidateResponse,
 )
@@ -37,11 +39,8 @@ def get_lab_sessions() -> dict[str, LabSession]:
     return _lab_sessions
 
 
-# --- Demo endpoints ---
-
-@router.get("/demos/blueprint", response_model=GenerateResponse)
-async def get_demo_blueprint() -> GenerateResponse:
-    """Return the handcrafted demo blueprint for testing without AI."""
+def _load_demo_blueprint() -> GenerateResponse:
+    """Load the handcrafted demo blueprint from disk (sync helper)."""
     if not DEMO_BLUEPRINT_PATH.exists():
         raise HTTPException(status_code=404, detail="Demo blueprint not found")
     raw = json.loads(DEMO_BLUEPRINT_PATH.read_text(encoding="utf-8"))
@@ -49,15 +48,25 @@ async def get_demo_blueprint() -> GenerateResponse:
     return GenerateResponse(blueprint=blueprint)
 
 
+# --- Demo endpoints ---
+
+@router.get("/demos/blueprint", response_model=GenerateResponse)
+async def get_demo_blueprint() -> GenerateResponse:
+    """Return the handcrafted demo blueprint for testing without AI."""
+    return _load_demo_blueprint()
+
+
 # --- Scenario generation ---
+# NOTE: def (not async def) — generate_blueprint() is a blocking Claude API call.
+# FastAPI runs sync endpoints in a threadpool, keeping the event loop responsive.
 
 @router.post("/scenarios/generate", response_model=GenerateResponse)
-async def generate_scenario(request: GenerateRequest) -> GenerateResponse:
+def generate_scenario(request: GenerateRequest) -> GenerateResponse:
     """Generate a new scenario blueprint via Claude AI."""
     from ..config import settings
 
     if settings.demo_mode:
-        return await get_demo_blueprint()
+        return _load_demo_blueprint()
 
     from ..services.generator import generate_blueprint
 
@@ -72,10 +81,44 @@ async def generate_scenario(request: GenerateRequest) -> GenerateResponse:
         raise HTTPException(status_code=500, detail="Internal error during generation") from e
 
 
+# --- Self-test ---
+# NOTE: def (not async def) — run_self_test() blocks for 30-120s (Docker launch,
+# DB wait, script exec, validation). Must run in threadpool to avoid freezing the event loop.
+
+@router.post("/scenarios/self-test", response_model=SelfTestResponse)
+def self_test_scenario(request: SelfTestRequest) -> SelfTestResponse:
+    """Self-test a blueprint: launch lab, run solution, validate, keep or teardown."""
+    from ..services.self_test import run_self_test
+
+    try:
+        passed, session, results, error = run_self_test(request.blueprint)
+
+        if passed and session:
+            # Register the session so existing /labs/{id}/* endpoints work on it
+            _lab_sessions[session.lab_id] = session
+            return SelfTestResponse(
+                passed=True,
+                lab_id=session.lab_id,
+                jupyter_url=session.jupyter_url,
+                validation_results=results,
+            )
+
+        return SelfTestResponse(
+            passed=False,
+            validation_results=results,
+            error=error,
+        )
+
+    except Exception as e:
+        logger.exception("Self-test failed")
+        raise HTTPException(status_code=500, detail=f"Self-test error: {str(e)}") from e
+
+
 # --- Lab lifecycle ---
+# NOTE: def (not async def) — Docker CLI calls block.
 
 @router.post("/labs/launch", response_model=LaunchResponse)
-async def launch_lab_endpoint(request: LaunchRequest) -> LaunchResponse:
+def launch_lab_endpoint(request: LaunchRequest) -> LaunchResponse:
     """Launch a lab environment from a blueprint."""
     try:
         session = orchestrator.launch_lab(request.blueprint)
@@ -129,7 +172,7 @@ async def get_lab_status(lab_id: str) -> LabStatusResponse:
 
 
 @router.post("/labs/{lab_id}/validate", response_model=ValidateResponse)
-async def validate_lab(lab_id: str) -> ValidateResponse:
+def validate_lab(lab_id: str) -> ValidateResponse:
     """Validate the learner's work in a lab."""
     session = _lab_sessions.get(lab_id)
     if not session:
@@ -137,7 +180,6 @@ async def validate_lab(lab_id: str) -> ValidateResponse:
     if session.status != LabStatus.running:
         raise HTTPException(status_code=400, detail="Lab is not running")
 
-    # Phase 3 will implement the actual validation
     from ..services import validator as validator_svc
 
     try:
@@ -156,7 +198,7 @@ async def validate_lab(lab_id: str) -> ValidateResponse:
 
 
 @router.post("/labs/{lab_id}/stop", response_model=StopResponse)
-async def stop_lab_endpoint(lab_id: str) -> StopResponse:
+def stop_lab_endpoint(lab_id: str) -> StopResponse:
     """Stop and clean up a lab environment."""
     session = _lab_sessions.get(lab_id)
     if not session:

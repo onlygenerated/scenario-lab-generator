@@ -62,6 +62,22 @@ class ValidateResponse(BaseModel):
     results: list[ValidationResult]
 
 
+# --- Self-test ---
+
+class SelfTestRequest(BaseModel):
+    """Request to self-test a blueprint."""
+    blueprint: ScenarioBlueprint
+
+
+class SelfTestResponse(BaseModel):
+    """Response after self-testing a blueprint."""
+    passed: bool
+    lab_id: str | None = None
+    jupyter_url: str | None = None
+    validation_results: list[ValidationResult] = Field(default_factory=list)
+    error: str | None = None
+
+
 # --- Lab management ---
 
 class StopResponse(BaseModel):

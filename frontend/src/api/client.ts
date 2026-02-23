@@ -49,6 +49,7 @@ export interface TransformationStep {
   title: string;
   description: string;
   hint: string;
+  solution_code: string;
   skill_tags: string[];
 }
 
@@ -84,6 +85,14 @@ export interface ValidationResult {
   error: string | null;
 }
 
+export interface SelfTestResponse {
+  passed: boolean;
+  lab_id: string | null;
+  jupyter_url: string | null;
+  validation_results: ValidationResult[];
+  error: string | null;
+}
+
 export const api = {
   getDemoBlueprint: () =>
     fetchJson<{ blueprint: ScenarioBlueprint }>('/demos/blueprint'),
@@ -92,6 +101,12 @@ export const api = {
     fetchJson<{ blueprint: ScenarioBlueprint }>('/scenarios/generate', {
       method: 'POST',
       body: JSON.stringify(request),
+    }),
+
+  selfTest: (blueprint: ScenarioBlueprint) =>
+    fetchJson<SelfTestResponse>('/scenarios/self-test', {
+      method: 'POST',
+      body: JSON.stringify({ blueprint }),
     }),
 
   launchLab: (blueprint: ScenarioBlueprint) =>

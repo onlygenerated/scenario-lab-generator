@@ -91,7 +91,11 @@ def _run_validation_query(
         output = result.strip() if result else ""
 
         # Parse psql output (pipe-delimited, no headers due to -t flag)
-        rows = [line for line in output.split("\n") if line.strip()]
+        # Filter out "SET" lines from SET statement_timeout command output
+        rows = [
+            line for line in output.split("\n")
+            if line.strip() and line.strip() != "SET"
+        ]
 
         actual_row_count = len(rows)
 
@@ -106,7 +110,13 @@ def _run_validation_query(
                 tty=False,
             )
             col_output = col_result.strip() if col_result else ""
-            col_lines = col_output.split("\n")
+            # Filter out "SET" responses and "(0 rows)" footer to find the header line
+            col_lines = [
+                line for line in col_output.split("\n")
+                if line.strip()
+                and line.strip() != "SET"
+                and not line.startswith("(")
+            ]
             if col_lines:
                 actual_columns = col_lines[0].split("|")
 

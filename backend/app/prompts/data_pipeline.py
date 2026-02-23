@@ -21,6 +21,14 @@ CRITICAL RULES for generated content:
 - Validation queries MUST be SELECT-only — never include INSERT, UPDATE, DELETE, DROP, or other DML/DDL
 - All validation queries must reference only the target tables, not source tables
 - Markdown instructions should be well-structured with clear headers, tables, and step-by-step guidance
+
+SOLUTION CODE RULES — each transformation step MUST include a `solution_code` field:
+- `solution_code` contains working Python (pandas + sqlalchemy) that performs the step
+- The setup is automatic: `source_engine`, `target_engine`, `pd`, and `create_engine` are pre-imported
+- Variables from prior steps carry over (e.g., a DataFrame created in step 1 is available in step 2)
+- The code must be correct and complete — it will be executed as a self-test before the student sees the lab
+- Use `pd.read_sql_table()` to read source tables and `.to_sql()` to write target tables
+- Use `if_exists='replace'` when writing to target tables for idempotency
 """
 
 USER_PROMPT_TEMPLATE = """Generate a data pipeline lab scenario with these parameters:
