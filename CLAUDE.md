@@ -19,7 +19,7 @@ ScenarioLabGenerator — AI-powered scenario-based lab training for data pipelin
 # Backend
 cd /c/claudeprojects/ScenarioLabGenerator
 source .venv/Scripts/activate
-uvicorn backend.app.main:app --reload          # Start dev server on :8000
+uvicorn backend.app.main:app --reload --reload-dir backend  # Start dev server on :8000
 pip-audit                                       # Security audit Python deps
 
 # Frontend

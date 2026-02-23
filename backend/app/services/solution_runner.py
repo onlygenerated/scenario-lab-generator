@@ -3,7 +3,7 @@ Solution runner — generates and executes a self-test Python script in the lab 
 
 Three functions:
   1. generate_solution_script() — builds a .py file from blueprint solution_code or heuristics
-  2. execute_solution_in_lab() — runs the script inside the Jupyter container
+  2. execute_solution_in_lab() — runs the script inside the Jupyter container via stdin
   3. wipe_target_tables() — TRUNCATEs target tables so the student starts fresh
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from pathlib import Path
 
 from python_on_whales import DockerClient
@@ -88,41 +89,53 @@ def execute_solution_in_lab(
     script: str,
 ) -> tuple[bool, str]:
     """
-    Write the script to the lab workspace and execute it inside the Jupyter container.
+    Pipe the solution script via stdin into `python -` inside the Jupyter container.
+
+    Uses subprocess directly (instead of writing a .py file to the mounted workspace)
+    to avoid triggering uvicorn's file watcher during --reload.
 
     Returns (success, output).
     """
     if not session.lab_dir:
         return False, "Lab directory not set"
 
-    script_filename = "_self_test_runner.py"
-    workspace_dir = Path(session.lab_dir) / "workspace"
-    script_path = workspace_dir / script_filename
-
     try:
-        # Write script to workspace (mounted into container at /home/jovyan/work/)
-        script_path.write_text(script, encoding="utf-8")
+        compose_file = str(Path(session.lab_dir) / "docker-compose.yml")
+        project_name = session.compose_project_name or ""
 
-        # Execute inside the Jupyter container
-        container_path = f"/home/jovyan/work/{script_filename}"
-        result = docker.compose.execute(
+        cmd = [
+            str(docker.client_config.docker_cmd[0]),
+            "compose",
+            "--file", compose_file,
+            "--project-name", project_name,
+            "exec", "-T",
             "jupyter",
-            ["python", container_path],
-            tty=False,
+            "python", "-",
+        ]
+
+        completed = subprocess.run(
+            cmd,
+            input=script.encode("utf-8"),
+            capture_output=True,
+            timeout=120,
         )
 
-        output = result.strip() if result else ""
-        success = _SUCCESS_MARKER in output
-        return success, output
+        stdout = completed.stdout.decode("utf-8", errors="replace").strip()
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
 
+        if completed.returncode != 0:
+            logger.warning("Solution execution failed (rc=%d): %s", completed.returncode, stderr[:500])
+            return False, stderr[:500] if stderr else f"Exit code {completed.returncode}"
+
+        success = _SUCCESS_MARKER in stdout
+        return success, stdout
+
+    except subprocess.TimeoutExpired:
+        logger.warning("Solution execution timed out")
+        return False, "Solution script timed out after 120s"
     except Exception as e:
         logger.warning("Solution execution failed: %s", e)
         return False, str(e)
-
-    finally:
-        # Clean up the script file
-        if script_path.exists():
-            script_path.unlink(missing_ok=True)
 
 
 def wipe_target_tables(
