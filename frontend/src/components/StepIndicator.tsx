@@ -1,21 +1,13 @@
 export type WorkflowStep =
   | 'CONFIGURE'
-  | 'GENERATING'
-  | 'SELF_TESTING'
-  | 'REVIEW'
-  | 'LAUNCHING'
-  | 'RUNNING'
-  | 'VALIDATING'
+  | 'GENERATE'
+  | 'LAB'
   | 'RESULTS';
 
 const STEPS: { key: WorkflowStep; label: string }[] = [
   { key: 'CONFIGURE', label: 'Configure' },
-  { key: 'GENERATING', label: 'Generate' },
-  { key: 'SELF_TESTING', label: 'Test' },
-  { key: 'REVIEW', label: 'Review' },
-  { key: 'LAUNCHING', label: 'Launch' },
-  { key: 'RUNNING', label: 'Lab' },
-  { key: 'VALIDATING', label: 'Validate' },
+  { key: 'GENERATE', label: 'Generate' },
+  { key: 'LAB', label: 'Lab' },
   { key: 'RESULTS', label: 'Results' },
 ];
 

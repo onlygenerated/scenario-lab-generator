@@ -69,19 +69,22 @@ def generate_notebook(blueprint: ScenarioBlueprint) -> str:
         "Read the **INSTRUCTIONS.md** tab for the full scenario and business rules.\n"
         "\n"
         f"Complete the {len(blueprint.transformation_steps)} steps below. "
-        "Each cell has a comment describing what to do and a hint to help you."
+        "Each step has instructions above an empty code cell for your work."
     ))
 
-    # One cell per transformation step
+    # One markdown + code cell pair per transformation step
     for step in blueprint.transformation_steps:
-        lines = [f"# Step {step.step_number}: {step.title}"]
-        lines.append(f"# {step.description}")
-        if step.hint:
-            lines.append(f"#")
-            lines.append(f"# Hint: {step.hint}")
-        lines.append("")
+        md_lines = [f"### Step {step.step_number}: {step.title}"]
+        md_lines.append("")
+        md_lines.append(step.description)
+        cells.append(_markdown_cell("\n".join(md_lines)))
 
-        cells.append(_code_cell("\n".join(lines)))
+        code_lines = []
+        if step.hint:
+            code_lines.append(f"# Hint: {step.hint}")
+        code_lines.append("# Type your answer below")
+        code_lines.append("")
+        cells.append(_code_cell("\n".join(code_lines)))
 
     notebook = {
         "cells": cells,

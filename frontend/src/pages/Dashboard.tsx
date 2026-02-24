@@ -4,13 +4,13 @@ import type { GenerateRequest, ScenarioBlueprint, ValidationResult } from '../ap
 import { StepIndicator } from '../components/StepIndicator';
 import type { WorkflowStep } from '../components/StepIndicator';
 import { ScenarioForm } from '../components/ScenarioForm';
-import { BlueprintViewer } from '../components/BlueprintViewer';
 import { LabWorkspace } from '../components/LabWorkspace';
 import { ValidationResults } from '../components/ValidationResults';
 
 export function Dashboard() {
   const [step, setStep] = useState<WorkflowStep>('CONFIGURE');
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [blueprint, setBlueprint] = useState<ScenarioBlueprint | null>(null);
@@ -19,10 +19,7 @@ export function Dashboard() {
   const [jupyterUrl, setJupyterUrl] = useState<string | null>(null);
   const [validationResults, setValidationResults] = useState<ValidationResult[] | null>(null);
   const [allPassed, setAllPassed] = useState(false);
-
-  // Pre-launched lab from self-test (reused on "Launch Lab")
-  const [prelaunchedLabId, setPrelaunchedLabId] = useState<string | null>(null);
-  const [prelaunchedJupyterUrl, setPrelaunchedJupyterUrl] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
 
   // Elapsed timer for loading states
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -30,8 +27,7 @@ export function Dashboard() {
   const MAX_LOADING_SECONDS = 600; // 10 minutes
 
   useEffect(() => {
-    const isLoading = loading && (step === 'GENERATING' || step === 'SELF_TESTING' || step === 'LAUNCHING' || step === 'VALIDATING');
-    if (isLoading) {
+    if (loading && loadingMessage) {
       setElapsedSeconds(0);
       timerRef.current = setInterval(() => {
         setElapsedSeconds(prev => prev + 1);
@@ -46,16 +42,17 @@ export function Dashboard() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [loading, step]);
+  }, [loading, loadingMessage]);
 
   const runSelfTest = async (bp: ScenarioBlueprint) => {
-    setStep('SELF_TESTING');
+    setLoadingMessage('Testing scenario...');
     try {
       const result = await api.selfTest(bp);
       if (result.passed && result.lab_id) {
-        setPrelaunchedLabId(result.lab_id);
-        setPrelaunchedJupyterUrl(result.jupyter_url);
-        setStep('REVIEW');
+        setLabId(result.lab_id);
+        setLabStatus('running');
+        setJupyterUrl(result.jupyter_url);
+        setStep('LAB');
       } else {
         setError(result.error || 'Self-test failed — scenario may have bugs');
         setStep('CONFIGURE');
@@ -69,7 +66,8 @@ export function Dashboard() {
   const handleGenerate = async (request: GenerateRequest) => {
     setLoading(true);
     setError(null);
-    setStep('GENERATING');
+    setStep('GENERATE');
+    setLoadingMessage('Generating your scenario (this may take a few minutes)...');
     try {
       const response = await api.generateScenario(request);
       setBlueprint(response.blueprint);
@@ -79,13 +77,15 @@ export function Dashboard() {
       setStep('CONFIGURE');
     } finally {
       setLoading(false);
+      setLoadingMessage(null);
     }
   };
 
   const handleDemo = async () => {
     setLoading(true);
     setError(null);
-    setStep('GENERATING');
+    setStep('GENERATE');
+    setLoadingMessage('Generating your scenario (this may take a few minutes)...');
     try {
       const response = await api.getDemoBlueprint();
       setBlueprint(response.blueprint);
@@ -95,38 +95,23 @@ export function Dashboard() {
       setStep('CONFIGURE');
     } finally {
       setLoading(false);
+      setLoadingMessage(null);
     }
   };
 
-  const handleLaunch = async () => {
+  const handleAutoLaunch = async () => {
     if (!blueprint) return;
-
-    // If we have a pre-launched lab from self-test, reuse it (instant)
-    if (prelaunchedLabId) {
-      setLabId(prelaunchedLabId);
-      setLabStatus('running');
-      setJupyterUrl(prelaunchedJupyterUrl);
-      setPrelaunchedLabId(null);
-      setPrelaunchedJupyterUrl(null);
-      setStep('RUNNING');
-      return;
-    }
-
-    // Fallback: normal launch (no self-test ran, or self-test lab was cleaned up)
-    setLoading(true);
+    setLaunching(true);
     setError(null);
-    setStep('LAUNCHING');
     try {
       const response = await api.launchLab(blueprint);
       setLabId(response.lab_id);
       setLabStatus(response.status);
       setJupyterUrl(response.jupyter_url);
-      setStep('RUNNING');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Launch failed');
-      setStep('REVIEW');
     } finally {
-      setLoading(false);
+      setLaunching(false);
     }
   };
 
@@ -134,17 +119,18 @@ export function Dashboard() {
     if (!labId) return;
     setLoading(true);
     setError(null);
-    setStep('VALIDATING');
+    setStep('RESULTS');
+    setLoadingMessage('Checking your work...');
     try {
       const response = await api.validateLab(labId);
       setValidationResults(response.results);
       setAllPassed(response.all_passed);
-      setStep('RESULTS');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Validation failed');
-      setStep('RUNNING');
+      setStep('LAB');
     } finally {
       setLoading(false);
+      setLoadingMessage(null);
     }
   };
 
@@ -165,10 +151,10 @@ export function Dashboard() {
   };
 
   const handleReset = async () => {
-    // Clean up pre-launched lab if it exists
-    if (prelaunchedLabId) {
+    // Clean up running lab if it exists
+    if (labId) {
       try {
-        await api.stopLab(prelaunchedLabId);
+        await api.stopLab(labId);
       } catch {
         // Best effort cleanup
       }
@@ -182,8 +168,8 @@ export function Dashboard() {
     setValidationResults(null);
     setAllPassed(false);
     setError(null);
-    setPrelaunchedLabId(null);
-    setPrelaunchedJupyterUrl(null);
+    setLaunching(false);
+    setLoadingMessage(null);
   };
 
   return (
@@ -230,15 +216,12 @@ export function Dashboard() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-6 pb-12">
-        {/* Loading overlay for generating/self-testing/launching/validating */}
-        {(step === 'GENERATING' || step === 'SELF_TESTING' || step === 'LAUNCHING' || step === 'VALIDATING') && loading && (
+        {/* Loading overlay */}
+        {loading && loadingMessage && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
             <p className="text-sm text-gray-500">
-              {step === 'GENERATING' && 'Generating your scenario...'}
-              {step === 'SELF_TESTING' && 'Testing scenario (this may take a few minutes)...'}
-              {step === 'LAUNCHING' && 'Starting lab environment...'}
-              {step === 'VALIDATING' && 'Checking your work...'}
+              {loadingMessage}
             </p>
             <p className="text-xs text-gray-400 mt-2 tabular-nums">
               {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')} elapsed
@@ -261,18 +244,8 @@ export function Dashboard() {
           />
         )}
 
-        {/* Review */}
-        {step === 'REVIEW' && blueprint && (
-          <BlueprintViewer
-            blueprint={blueprint}
-            onLaunch={handleLaunch}
-            onBack={handleReset}
-            loading={loading}
-          />
-        )}
-
-        {/* Running */}
-        {step === 'RUNNING' && labId && blueprint && (
+        {/* Lab */}
+        {step === 'LAB' && blueprint && (
           <LabWorkspace
             blueprint={blueprint}
             labId={labId}
@@ -280,17 +253,19 @@ export function Dashboard() {
             jupyterUrl={jupyterUrl}
             onValidate={handleValidate}
             onStop={handleStop}
+            launching={launching}
+            onAutoLaunch={handleAutoLaunch}
             loading={loading}
           />
         )}
 
         {/* Results */}
-        {step === 'RESULTS' && validationResults && (
+        {step === 'RESULTS' && !loading && validationResults && (
           <ValidationResults
             results={validationResults}
             allPassed={allPassed}
-            onBack={() => setStep('RUNNING')}
-            onRetry={() => setStep('RUNNING')}
+            onBack={() => setStep('LAB')}
+            onRetry={() => setStep('LAB')}
           />
         )}
       </main>
