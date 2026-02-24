@@ -91,6 +91,12 @@ export interface ScenarioBlueprint {
   lab_instructions: string;
 }
 
+export interface FeedbackItem {
+  query_name: string;
+  diagnosis: string;
+  suggestion: string;
+}
+
 export interface ValidationResult {
   query_name: string;
   passed: boolean;
@@ -99,6 +105,7 @@ export interface ValidationResult {
   expected_columns: string[];
   actual_columns: string[] | null;
   error: string | null;
+  feedback: FeedbackItem | null;
 }
 
 export interface SelfTestResponse {
@@ -136,6 +143,11 @@ export const api = {
 
   validateLab: (labId: string) =>
     fetchJson<{ lab_id: string; all_passed: boolean; results: ValidationResult[] }>(`/labs/${labId}/validate`, {
+      method: 'POST',
+    }),
+
+  getFeedback: (labId: string) =>
+    fetchJson<{ lab_id: string; feedback: FeedbackItem[] }>(`/labs/${labId}/feedback`, {
       method: 'POST',
     }),
 

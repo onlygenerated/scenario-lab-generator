@@ -125,6 +125,26 @@ export function Dashboard() {
       const response = await api.validateLab(labId);
       setValidationResults(response.results);
       setAllPassed(response.all_passed);
+
+      // If there are failures, fetch AI feedback (best-effort)
+      const hasFailures = response.results.some(r => !r.passed);
+      if (hasFailures) {
+        setLoadingMessage('Analyzing your work...');
+        try {
+          const fbResponse = await api.getFeedback(labId);
+          // Merge feedback into results by query_name
+          const feedbackByName = new Map(
+            fbResponse.feedback.map(f => [f.query_name, f])
+          );
+          const merged = response.results.map(r => ({
+            ...r,
+            feedback: feedbackByName.get(r.query_name) ?? r.feedback,
+          }));
+          setValidationResults(merged);
+        } catch {
+          // Feedback is best-effort — silently ignore errors
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Validation failed');
       setStep('LAB');

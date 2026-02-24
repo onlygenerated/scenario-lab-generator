@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from .blueprint import Difficulty, ScenarioBlueprint
-from .lab import LabSession, LabStatus, ValidationResult
+from .lab import FeedbackItem, LabSession, LabStatus, ValidationResult
 
 
 # --- Scenario generation ---
@@ -60,6 +60,14 @@ class ValidateResponse(BaseModel):
     lab_id: str
     all_passed: bool
     results: list[ValidationResult]
+
+
+# --- Feedback ---
+
+class FeedbackResponse(BaseModel):
+    """AI-generated feedback for failed validation checks."""
+    lab_id: str
+    feedback: list[FeedbackItem]
 
 
 # --- Self-test ---

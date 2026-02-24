@@ -22,8 +22,10 @@ from ..models.blueprint import ScenarioBlueprint
 from ..models.lab import LabSession, LabStatus, ValidationResult
 from . import orchestrator, validator
 from .generator import repair_blueprint
+from .notebook_generator import generate_incorrect_notebook
 from .solution_runner import (
     execute_solution_in_lab,
+    generate_incorrect_script,
     generate_solution_script,
     wipe_target_tables,
 )
@@ -71,6 +73,95 @@ def _collect_row_count_failures(
                 "sql": query.sql[:200] if query else None,
             })
     return failures
+
+
+def _verify_incorrect_fails(
+    blueprint: ScenarioBlueprint,
+    session: LabSession,
+    docker: DockerClient,
+) -> int | None:
+    """
+    Run the incorrect notebook and verify it fails at least one validation check.
+
+    Tries escalation levels 0 and 1. Returns the level that failed, or None if
+    the incorrect notebook passes at all levels (graceful degradation).
+
+    Side-effect: overwrites workspace/incorrect_solution.ipynb if escalation
+    is needed so the workspace file matches the version that actually fails.
+    """
+    for level in (0, 1):
+        logger.info(
+            "Self-test: verifying incorrect notebook fails validation (level %d)...",
+            level,
+        )
+
+        # Wipe target tables before running the incorrect script
+        wipe_target_tables(blueprint, docker)
+
+        # Generate and execute incorrect script
+        script = generate_incorrect_script(blueprint, escalation_level=level)
+        success, output = execute_solution_in_lab(session, docker, script)
+
+        if not success:
+            # Script crashed — that's a valid failure mode (student would see same error)
+            logger.info(
+                "Incorrect notebook crashes at level %d (valid failure): %s",
+                level,
+                output[:200],
+            )
+            if level > 0:
+                _overwrite_incorrect_notebook(blueprint, session, level)
+            return level
+
+        # Script ran — check validation
+        results = validator.validate_lab(session)
+        any_failed = any(not r.passed for r in results)
+
+        if any_failed:
+            logger.info(
+                "Incorrect notebook correctly fails validation (level %d).",
+                level,
+            )
+            if level > 0:
+                _overwrite_incorrect_notebook(blueprint, session, level)
+            return level
+
+        logger.info(
+            "Incorrect notebook passed all checks at level %d — escalating...",
+            level,
+        )
+
+    # All levels passed — graceful degradation
+    logger.warning(
+        "Incorrect notebook passes validation at all escalation levels. "
+        "Proceeding anyway — the solution works, incorrect notebook is a bonus."
+    )
+    return None
+
+
+def _overwrite_incorrect_notebook(
+    blueprint: ScenarioBlueprint,
+    session: LabSession,
+    escalation_level: int,
+) -> None:
+    """Overwrite the workspace incorrect_solution.ipynb with an escalated version."""
+    from pathlib import Path
+
+    if not session.lab_dir:
+        return
+
+    workspace_dir = Path(session.lab_dir) / "workspace"
+    incorrect_path = workspace_dir / "incorrect_solution.ipynb"
+
+    try:
+        notebook_json = generate_incorrect_notebook(blueprint, escalation_level)
+        incorrect_path.write_text(notebook_json, encoding="utf-8")
+        logger.info(
+            "Overwrote incorrect_solution.ipynb with level %d mutations.",
+            escalation_level,
+        )
+    except Exception as e:
+        logger.warning("Failed to overwrite incorrect notebook: %s", e)
 
 
 def run_self_test(
@@ -139,7 +230,10 @@ def run_self_test(
             all_passed = all(r.passed for r in results)
 
             if all_passed:
-                # 6. All passed! Wipe target tables so student starts fresh
+                # 6. All passed! Verify the incorrect notebook actually fails.
+                _verify_incorrect_fails(current_blueprint, session, docker)
+
+                # 7. Wipe target tables so student starts fresh
                 logger.info("Self-test: wiping target tables for student...")
                 wipe_target_tables(current_blueprint, docker)
                 logger.info("Self-test: PASSED. Lab %s ready for reuse.", session.lab_id)

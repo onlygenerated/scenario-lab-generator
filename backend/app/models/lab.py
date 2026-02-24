@@ -20,6 +20,13 @@ class LabStatus(str, Enum):
     error = "error"
 
 
+class FeedbackItem(BaseModel):
+    """AI-generated feedback for a single failed validation check."""
+    query_name: str
+    diagnosis: str    # What went wrong (2-3 sentences)
+    suggestion: str   # How to fix it without giving code
+
+
 class ValidationResult(BaseModel):
     """Result of a single validation query."""
     query_name: str
@@ -29,6 +36,7 @@ class ValidationResult(BaseModel):
     expected_columns: list[str]
     actual_columns: list[str] | None = None
     error: str | None = None
+    feedback: FeedbackItem | None = None
 
 
 class LabSession(BaseModel):

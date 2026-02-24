@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from ..models.api_models import (
+    FeedbackResponse,
     GenerateRequest,
     GenerateResponse,
     LabListResponse,
@@ -202,6 +203,36 @@ def validate_lab(lab_id: str) -> ValidateResponse:
     except Exception as e:
         logger.exception("Validation error")
         raise HTTPException(status_code=500, detail="Internal error during validation") from e
+
+
+@router.post("/labs/{lab_id}/feedback", response_model=FeedbackResponse)
+def get_feedback(lab_id: str) -> FeedbackResponse:
+    """Generate AI feedback for failed validation checks."""
+    session = _lab_sessions.get(lab_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Lab {lab_id} not found")
+    if not session.validation_results:
+        raise HTTPException(status_code=400, detail="Validation has not been run yet")
+
+    failed = [r for r in session.validation_results if not r.passed]
+    if not failed:
+        return FeedbackResponse(lab_id=lab_id, feedback=[])
+
+    from ..services.feedback_generator import generate_feedback
+
+    try:
+        feedback_items = generate_feedback(session, failed)
+
+        # Attach feedback to stored validation results by query_name
+        feedback_by_name = {f.query_name: f for f in feedback_items}
+        for result in session.validation_results:
+            if result.query_name in feedback_by_name:
+                result.feedback = feedback_by_name[result.query_name]
+
+        return FeedbackResponse(lab_id=lab_id, feedback=feedback_items)
+    except Exception as e:
+        logger.exception("Feedback generation error")
+        raise HTTPException(status_code=500, detail="Internal error generating feedback") from e
 
 
 @router.post("/labs/{lab_id}/stop", response_model=StopResponse)

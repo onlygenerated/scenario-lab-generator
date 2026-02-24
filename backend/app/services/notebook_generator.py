@@ -426,6 +426,345 @@ def _generate_aggregation_code(
     )
 
 
+def generate_incorrect_notebook(
+    blueprint: ScenarioBlueprint,
+    escalation_level: int = 0,
+) -> str:
+    """
+    Generate a notebook with deliberate plausible mistakes for testing the feedback loop.
+
+    Same structure as generate_solution_notebook but with one mistake per step,
+    chosen based on skill_tags.
+
+    escalation_level controls mutation strength:
+      0 — Semantic mutations (pedagogically ideal but data-dependent)
+      1 — Row-affecting mutations (guaranteed to change row counts)
+    """
+    cells: list[dict] = []
+
+    # --- Header ---
+    cells.append(_markdown_cell(
+        "# Incorrect Solution Notebook\n"
+        "\n"
+        "**For testing the feedback loop** — this notebook contains deliberate mistakes.\n"
+        "\n"
+        "Run all cells, then click **Check My Work** to see validation failures and AI feedback."
+    ))
+
+    # --- Same setup section ---
+    cells.append(_code_cell(
+        "import pandas as pd\n"
+        "from sqlalchemy import create_engine\n"
+        "\n"
+        "# Connection strings\n"
+        "source_engine = create_engine('postgresql://labuser:labpass@source-db:5432/source_db')\n"
+        "target_engine = create_engine('postgresql://labuser:labpass@target-db:5432/target_db')\n"
+        "\n"
+        "print('Engines created successfully!')"
+    ))
+
+    cells.append(_code_cell(
+        "# Quick test: list tables in source database\n"
+        "source_tables = pd.read_sql_query(\n"
+        "    \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'\",\n"
+        "    source_engine\n"
+        ")\n"
+        "print('Source tables:')\n"
+        "source_tables"
+    ))
+
+    # --- Incorrect work section ---
+    cells.append(_markdown_cell(
+        "## Steps (with deliberate mistakes)\n"
+        "\n"
+        "Each cell below has a plausible but incorrect implementation."
+    ))
+
+    step_cells: list[dict] = []
+    for step in blueprint.transformation_steps:
+        step_cells.append(_markdown_cell(
+            f"### Step {step.step_number}: {step.title}\n"
+            f"\n"
+            f"{step.description}"
+        ))
+
+        code = _inject_mistake(step, escalation_level)
+        step_cells.append(_code_cell(code))
+
+    cells.extend(step_cells)
+
+    # Verification cell
+    target_name = blueprint.target_tables[0].table_name if blueprint.target_tables else "result"
+    cells.append(_markdown_cell("### Verify Results"))
+    cells.append(_code_cell(
+        f"# Check what we loaded\n"
+        f"result = pd.read_sql_table('{target_name}', target_engine)\n"
+        f"print(f'Loaded {{len(result)}} rows into {target_name}')\n"
+        f"result"
+    ))
+
+    notebook = {
+        "cells": cells,
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            },
+            "language_info": {
+                "name": "python",
+                "version": "3.11.0",
+            },
+        },
+        "nbformat": 4,
+        "nbformat_minor": 4,
+    }
+
+    return json.dumps(notebook, indent=1, ensure_ascii=False)
+
+
+def _classify_step(step: "TransformationStep") -> str:
+    """
+    Classify a step into a canonical category based on skill_tags, title, and code.
+
+    AI-generated skill_tags vary widely (JOIN, INNER_JOIN, DATA_JOINING, etc.)
+    so we normalize by checking for substring matches.
+    """
+    # Combine all signals into one searchable string
+    tags_lower = " ".join(step.skill_tags).lower()
+    title_lower = step.title.lower()
+    code_lower = step.solution_code.lower()
+    combined = f"{tags_lower} {title_lower}"
+
+    if any(kw in combined for kw in ("join", "merge", "merg")):
+        return "JOIN"
+    if any(kw in combined for kw in ("filter", "clean", "drop", "remove", "exclude")):
+        return "FILTERING"
+    if any(kw in combined for kw in ("aggregat", "groupby", "group_by", "group by", "agg")):
+        return "AGGREGATION"
+    if any(kw in combined for kw in ("load", "write", "insert", "target")):
+        # Confirm by checking for to_sql in the code
+        if "to_sql" in code_lower:
+            return "LOADING"
+    if any(kw in combined for kw in ("extract", "read", "source", "ingest")):
+        return "EXTRACTION"
+    if any(kw in combined for kw in ("transform", "calculat", "comput", "date", "column")):
+        return "TRANSFORMATION"
+
+    # Fall back to code-level detection
+    if "pd.merge(" in code_lower or ".merge(" in code_lower:
+        return "JOIN"
+    if ".to_sql(" in code_lower:
+        return "LOADING"
+    if ".groupby(" in code_lower:
+        return "AGGREGATION"
+    if ".dropna(" in code_lower or ".fillna(" in code_lower:
+        return "FILTERING"
+
+    return "OTHER"
+
+
+def _inject_mistake(step: "TransformationStep", escalation_level: int = 0) -> str:
+    """
+    Take a transformation step and return code with a deliberate plausible mistake.
+
+    Uses _classify_step to robustly match the step category regardless of
+    how the AI named the skill_tags, then applies code-level mutations.
+
+    escalation_level 0: semantic mutations (pedagogically ideal, data-dependent)
+    escalation_level >= 1: row-affecting mutations (guaranteed to change row counts)
+    """
+    code = step.solution_code.strip()
+
+    if not code:
+        return f"# {step.title}\n# (no solution_code available for this step)"
+
+    category = _classify_step(step)
+
+    if escalation_level >= 1:
+        return _inject_row_affecting_mistake(code, category)
+
+    # --- Level 0: semantic mutations (current behavior) ---
+
+    # JOIN: change inner→left OR inner→outer, with regex fallback
+    if category == "JOIN":
+        import re
+        # Try exact string patterns first
+        for old, new in [
+            ("how='inner'", "how='left'"),
+            ('how="inner"', 'how="left"'),
+        ]:
+            if old in code:
+                return code.replace(old, new)
+        # Regex fallback for any quoting style
+        modified = re.sub(r"how\s*=\s*['\"]inner['\"]", "how='left'", code)
+        if modified != code:
+            return modified
+        # If merge/join is present but no how= parameter (defaults to inner),
+        # add how='left' explicitly
+        if "pd.merge(" in code or ".merge(" in code:
+            modified = re.sub(r"(\.merge\([^)]*)\)", r"\1, how='left')", code, count=1)
+            if modified != code:
+                return modified
+            modified = re.sub(r"(pd\.merge\([^)]*)\)", r"\1, how='left')", code, count=1)
+            if modified != code:
+                return modified
+        return code
+
+    # FILTERING: skip the filter step entirely
+    if category == "FILTERING":
+        # Find the output variable name from the code (e.g., "active = ..." or "filtered = ...")
+        import re
+        var_match = re.match(r"(\w+)\s*=", code)
+        var_name = var_match.group(1) if var_match else "filtered"
+        # Find the input DataFrame referenced in the code
+        input_match = re.search(r"=\s*(\w+)\[", code)
+        input_name = input_match.group(1) if input_match else "df"
+        return (
+            f"# Skipping filter — assuming all data is relevant\n"
+            f"{var_name} = {input_name}.copy()\n"
+            f"print(f'Rows (no filter applied): {{len({var_name})}}')"
+        )
+
+    # AGGREGATION: swap a sum→count or remove a groupby column
+    if category == "AGGREGATION":
+        import re
+        # Try replacing 'sum' with 'count' (various quoting)
+        for old, new in [("'sum'", "'count'"), ('"sum"', '"count"')]:
+            modified = code.replace(old, new, 1)
+            if modified != code:
+                return modified
+        # Try removing one column from groupby list to change the granularity
+        gb_match = re.search(r"\.groupby\(\[([^\]]+)\]\)", code)
+        if gb_match:
+            cols_str = gb_match.group(1)
+            cols = [c.strip() for c in cols_str.split(",")]
+            if len(cols) >= 2:
+                # Remove the first groupby column
+                new_cols = ", ".join(cols[1:])
+                return code.replace(gb_match.group(0), f".groupby([{new_cols}])")
+        return code
+
+    # LOADING: replace→append, which causes duplicates on re-run
+    if category == "LOADING":
+        import re
+        for old, new in [
+            ("if_exists='replace'", "if_exists='append'"),
+            ('if_exists="replace"', 'if_exists="append"'),
+        ]:
+            if old in code:
+                return code.replace(old, new)
+        # Regex fallback
+        modified = re.sub(
+            r"if_exists\s*=\s*['\"]replace['\"]",
+            "if_exists='append'",
+            code,
+        )
+        if modified != code:
+            return modified
+        return code
+
+    # TRANSFORMATION: drop a computed column assignment
+    if category == "TRANSFORMATION":
+        # Remove the first line that creates a new column (df['x'] = ...)
+        lines = code.split("\n")
+        for i, line in enumerate(lines):
+            if "['" in line and "=" in line and line.index("=") > line.index("['"):
+                lines[i] = f"# SKIPPED: {line.strip()}"
+                return "\n".join(lines)
+        return code
+
+    # EXTRACTION / CONNECTION / OTHER: return correct code
+    # (these steps don't meaningfully affect validation outcomes)
+    return code
+
+
+def _inject_row_affecting_mistake(code: str, category: str) -> str:
+    """
+    Level 1 mutations — guaranteed to change row counts.
+
+    These are less pedagogically ideal but ensure the incorrect notebook
+    actually fails validation.
+    """
+    import re
+
+    # LOADING: .head(1) before .to_sql() — loads only 1 row
+    if category == "LOADING":
+        modified = re.sub(
+            r"(\w+)(\.to_sql\()",
+            r"\1.head(1)\2",
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+
+    # AGGREGATION: remove a groupby column to change number of groups
+    if category == "AGGREGATION":
+        gb_match = re.search(r"\.groupby\(\[([^\]]+)\]\)", code)
+        if gb_match:
+            cols_str = gb_match.group(1)
+            cols = [c.strip() for c in cols_str.split(",")]
+            if len(cols) >= 2:
+                new_cols = ", ".join(cols[1:])
+                return code.replace(gb_match.group(0), f".groupby([{new_cols}])")
+        # Fallback: .head(1) after aggregation
+        modified = re.sub(
+            r"(\.reset_index\(\))",
+            r"\1.head(1)",
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+
+    # FILTERING: df.head(1) instead of the real filter
+    if category == "FILTERING":
+        var_match = re.match(r"(\w+)\s*=", code)
+        var_name = var_match.group(1) if var_match else "filtered"
+        input_match = re.search(r"=\s*(\w+)\[", code)
+        input_name = input_match.group(1) if input_match else "df"
+        return (
+            f"# Aggressive filter — keeping only first row\n"
+            f"{var_name} = {input_name}.head(1).copy()\n"
+            f"print(f'After filtering: {{len({var_name})}} rows')"
+        )
+
+    # JOIN: .head(2) before merge — shrinks result
+    if category == "JOIN":
+        # Find the first DataFrame argument and add .head(2)
+        modified = re.sub(
+            r"(pd\.merge\()(\w+)",
+            r"\1\2.head(2)",
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+        modified = re.sub(
+            r"(\w+)(\.merge\()",
+            r"\1.head(2)\2",
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+
+    # Default safety net: .head(1) before the last .to_sql() call
+    if ".to_sql(" in code:
+        modified = re.sub(
+            r"(\w+)(\.to_sql\()",
+            r"\1.head(1)\2",
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+
+    # Ultimate fallback: return original code (no mutation possible)
+    return code
+
+
 def _markdown_cell(source: str) -> dict:
     return {
         "cell_type": "markdown",

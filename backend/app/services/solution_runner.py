@@ -19,7 +19,7 @@ from python_on_whales import DockerClient
 
 from ..models.blueprint import ScenarioBlueprint
 from ..models.lab import LabSession
-from .notebook_generator import generate_solution_notebook
+from .notebook_generator import generate_incorrect_notebook, generate_solution_notebook
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,31 @@ def _script_from_notebook(blueprint: ScenarioBlueprint) -> str:
         if cell["cell_type"] != "code":
             continue
         # cell["source"] is a list of lines (with newlines)
+        source = "".join(cell["source"])
+        lines.append(source)
+        lines.append("")
+
+    lines.append(f"print('{_SUCCESS_MARKER}')")
+    return "\n".join(lines)
+
+
+def generate_incorrect_script(
+    blueprint: ScenarioBlueprint,
+    escalation_level: int = 0,
+) -> str:
+    """
+    Produce a self-contained Python script from the incorrect notebook.
+
+    Same extraction pattern as _script_from_notebook() but uses
+    generate_incorrect_notebook() with the given escalation level.
+    """
+    notebook_json = generate_incorrect_notebook(blueprint, escalation_level)
+    notebook = json.loads(notebook_json)
+
+    lines = []
+    for cell in notebook["cells"]:
+        if cell["cell_type"] != "code":
+            continue
         source = "".join(cell["source"])
         lines.append(source)
         lines.append("")

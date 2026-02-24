@@ -17,7 +17,7 @@ from python_on_whales import DockerClient
 from ..config import settings
 from ..models.blueprint import ScenarioBlueprint
 from ..models.lab import LabSession, LabStatus
-from .notebook_generator import generate_notebook, generate_solution_notebook
+from .notebook_generator import generate_incorrect_notebook, generate_notebook, generate_solution_notebook
 from .seed_generator import generate_source_sql, generate_target_sql
 
 # Track allocated ports to avoid collisions
@@ -83,6 +83,9 @@ def _prepare_lab_directory(lab_id: str, blueprint: ScenarioBlueprint, jupyter_po
 
     solution_json = generate_solution_notebook(blueprint)
     (workspace_dir / "solution.ipynb").write_text(solution_json, encoding="utf-8")
+
+    incorrect_json = generate_incorrect_notebook(blueprint)
+    (workspace_dir / "incorrect_solution.ipynb").write_text(incorrect_json, encoding="utf-8")
 
     (workspace_dir / "INSTRUCTIONS.md").write_text(
         blueprint.lab_instructions, encoding="utf-8"
