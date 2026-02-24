@@ -11,7 +11,7 @@ import re
 from enum import Enum
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Strict identifier pattern: lowercase alpha start, then alphanumeric/underscores, max 63 chars
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -91,6 +91,56 @@ class SourceTable(BaseModel):
     @classmethod
     def validate_table_name(cls, v: str) -> str:
         return _validate_identifier(v, "Table name")
+
+    @model_validator(mode="after")
+    def validate_sample_data(self) -> "SourceTable":
+        """Validate that sample_data keys match columns and values fit declared types."""
+        col_names = {col.name for col in self.columns}
+        col_types = {col.name: col.data_type for col in self.columns}
+
+        for i, row in enumerate(self.sample_data):
+            # Check for unexpected keys
+            extra_keys = set(row.keys()) - col_names
+            if extra_keys:
+                raise ValueError(
+                    f"sample_data row {i} for table '{self.table_name}' has keys "
+                    f"not in column list: {extra_keys}"
+                )
+
+            # Validate individual values against column types
+            for key, value in row.items():
+                if value is None:
+                    continue
+                dtype = col_types.get(key)
+                if dtype is None:
+                    continue
+
+                if isinstance(value, str):
+                    # Pipe characters break psql output parsing
+                    if "|" in value:
+                        raise ValueError(
+                            f"sample_data row {i}, column '{key}' in table "
+                            f"'{self.table_name}' contains a pipe character (|) "
+                            f"which breaks validation output parsing"
+                        )
+                    # VARCHAR(255) length check
+                    if dtype == ColumnDataType.varchar and len(value) > 255:
+                        raise ValueError(
+                            f"sample_data row {i}, column '{key}' in table "
+                            f"'{self.table_name}' exceeds VARCHAR(255) limit "
+                            f"({len(value)} chars)"
+                        )
+
+                if isinstance(value, (int, float)):
+                    # NUMERIC(12,2) range check
+                    if dtype == ColumnDataType.numeric:
+                        if abs(value) > 9_999_999_999.99:
+                            raise ValueError(
+                                f"sample_data row {i}, column '{key}' in table "
+                                f"'{self.table_name}' exceeds NUMERIC(12,2) range: {value}"
+                            )
+
+        return self
 
 
 class TargetTable(BaseModel):

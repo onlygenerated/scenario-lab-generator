@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re as _re
 import subprocess
 from pathlib import Path
 
@@ -24,6 +25,27 @@ logger = logging.getLogger(__name__)
 
 # Marker printed by the script on success
 _SUCCESS_MARKER = "===SELF_TEST_SOLUTION_OK==="
+
+# Modules that AI-generated solution code should never import.
+# Not bulletproof, but catches the obvious cases before container execution.
+_BLOCKED_IMPORTS = ["os", "subprocess", "socket", "shutil", "sys"]
+
+# Dangerous builtins to reject (matched with word-boundary regex)
+_BLOCKED_CALLS = ["open", "exec", "eval", "__import__"]
+
+
+def _check_solution_safety(script: str) -> str | None:
+    """Return an error message if the solution script contains blocked patterns, else None."""
+    for mod in _BLOCKED_IMPORTS:
+        if f"import {mod}" in script or f"from {mod} " in script:
+            return f"Solution code contains blocked import: '{mod}'"
+
+    for func in _BLOCKED_CALLS:
+        # Match "open(" but not "if_exists=" or "execute" — require word boundary before
+        if _re.search(rf"(?<![a-zA-Z_.]){_re.escape(func)}\s*\(", script):
+            return f"Solution code contains blocked call: '{func}('"
+
+    return None
 
 
 def generate_solution_script(blueprint: ScenarioBlueprint) -> str:
@@ -99,6 +121,11 @@ def execute_solution_in_lab(
     if not session.lab_dir:
         return False, "Lab directory not set"
 
+    safety_error = _check_solution_safety(script)
+    if safety_error:
+        logger.warning("Solution safety check failed: %s", safety_error)
+        return False, safety_error
+
     try:
         compose_file = str(Path(session.lab_dir) / "docker-compose.yml")
         project_name = session.compose_project_name or ""
@@ -124,8 +151,8 @@ def execute_solution_in_lab(
         stderr = completed.stderr.decode("utf-8", errors="replace").strip()
 
         if completed.returncode != 0:
-            logger.warning("Solution execution failed (rc=%d): %s", completed.returncode, stderr[:500])
-            return False, stderr[:500] if stderr else f"Exit code {completed.returncode}"
+            logger.warning("Solution execution failed (rc=%d): %s", completed.returncode, stderr[:2000])
+            return False, stderr[:2000] if stderr else f"Exit code {completed.returncode}"
 
         success = _SUCCESS_MARKER in stdout
         return success, stdout

@@ -6,7 +6,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-5-20250514"
+    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_max_tokens: int = 32768
 
     # API
     api_host: str = "0.0.0.0"

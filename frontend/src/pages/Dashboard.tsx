@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import type { GenerateRequest, ScenarioBlueprint, ValidationResult } from '../api/client';
 import { StepIndicator } from '../components/StepIndicator';
@@ -23,6 +23,30 @@ export function Dashboard() {
   // Pre-launched lab from self-test (reused on "Launch Lab")
   const [prelaunchedLabId, setPrelaunchedLabId] = useState<string | null>(null);
   const [prelaunchedJupyterUrl, setPrelaunchedJupyterUrl] = useState<string | null>(null);
+
+  // Elapsed timer for loading states
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const MAX_LOADING_SECONDS = 600; // 10 minutes
+
+  useEffect(() => {
+    const isLoading = loading && (step === 'GENERATING' || step === 'SELF_TESTING' || step === 'LAUNCHING' || step === 'VALIDATING');
+    if (isLoading) {
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [loading, step]);
 
   const runSelfTest = async (bp: ScenarioBlueprint) => {
     setStep('SELF_TESTING');
@@ -212,10 +236,18 @@ export function Dashboard() {
             <div className="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
             <p className="text-sm text-gray-500">
               {step === 'GENERATING' && 'Generating your scenario...'}
-              {step === 'SELF_TESTING' && 'Testing scenario...'}
+              {step === 'SELF_TESTING' && 'Testing scenario (this may take a few minutes)...'}
               {step === 'LAUNCHING' && 'Starting lab environment...'}
               {step === 'VALIDATING' && 'Checking your work...'}
             </p>
+            <p className="text-xs text-gray-400 mt-2 tabular-nums">
+              {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')} elapsed
+            </p>
+            {elapsedSeconds >= MAX_LOADING_SECONDS && (
+              <p className="text-xs text-amber-600 mt-1">
+                This is taking longer than expected. You may want to start over.
+              </p>
+            )}
           </div>
         )}
 

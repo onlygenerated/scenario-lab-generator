@@ -1,18 +1,34 @@
 const API_BASE = '/api';
 
+// Self-test and generation can take 2-5 minutes; browser default (~60-90s) is too short.
+const FETCH_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${url}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `HTTP ${response.status}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE}${url}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Request timed out — the server may still be working. Check the labs list.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return response.json();
 }
 
 // Types matching backend API models

@@ -65,13 +65,20 @@ def generate_scenario(request: GenerateRequest) -> GenerateResponse:
     """Generate a new scenario blueprint via Claude AI."""
     from ..config import settings
 
+    logger.info(
+        "Generate request: difficulty=%s, tables=%d, skills=%s, industry=%s",
+        request.difficulty, request.num_source_tables, request.focus_skills, request.industry,
+    )
+
     if settings.demo_mode:
+        logger.info("Demo mode — returning sample blueprint")
         return _load_demo_blueprint()
 
     from ..services.generator import generate_blueprint
 
     try:
         blueprint = generate_blueprint(request)
+        logger.info("Generation complete: '%s' (%d source tables)", blueprint.title, len(blueprint.source_tables))
         return GenerateResponse(blueprint=blueprint)
     except RuntimeError as e:
         status = 429 if "Rate limit" in str(e) else 500

@@ -58,9 +58,15 @@ def _create_table_sql(table_name: str, columns: list[ColumnDefinition]) -> str:
 
 
 def _insert_rows_sql(table_name: str, columns: list[ColumnDefinition], rows: list[dict]) -> str:
-    """Generate INSERT statements for sample data rows."""
+    """Generate INSERT statements for sample data rows.
+
+    All columns (including SERIAL) are inserted with explicit values to preserve
+    foreign key references from sample_data. After inserting, SERIAL sequences are
+    reset to avoid conflicts with future auto-generated inserts.
+    """
     if not rows:
         return ""
+
     col_names = [col.name for col in columns]
     quoted_cols = ", ".join(f'"{c}"' for c in col_names)
 
@@ -72,6 +78,14 @@ def _insert_rows_sql(table_name: str, columns: list[ColumnDefinition], rows: lis
             values.append(_escape_sql_value(val))
         values_str = ", ".join(values)
         lines.append(f'INSERT INTO "{table_name}" ({quoted_cols}) VALUES ({values_str});')
+
+    # Reset sequences for SERIAL columns so future inserts don't conflict
+    serial_cols = [col for col in columns if col.data_type == ColumnDataType.serial]
+    for col in serial_cols:
+        lines.append(
+            f"SELECT setval(pg_get_serial_sequence('\"{table_name}\"', '{col.name}'), "
+            f"COALESCE((SELECT MAX(\"{col.name}\") FROM \"{table_name}\"), 0));"
+        )
 
     return "\n".join(lines) + "\n"
 

@@ -1,4 +1,4 @@
-FROM jupyter/minimal-notebook:latest
+FROM jupyter/minimal-notebook:python-3.11
 
 USER root
 

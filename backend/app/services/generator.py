@@ -13,11 +13,17 @@ import time
 from collections import deque
 
 import anthropic
+import httpx
 
 from ..config import settings
 from ..models.api_models import GenerateRequest
 from ..models.blueprint import ScenarioBlueprint
-from ..prompts.data_pipeline import SYSTEM_PROMPT, build_user_prompt
+from ..prompts.data_pipeline import (
+    REPAIR_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    build_repair_prompt,
+    build_user_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +108,7 @@ def generate_blueprint(request: GenerateRequest) -> ScenarioBlueprint:
 
     response = client.messages.create(
         model=settings.anthropic_model,
-        max_tokens=16000,
+        max_tokens=settings.anthropic_max_tokens,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_prompt}],
         tools=[
@@ -113,7 +119,15 @@ def generate_blueprint(request: GenerateRequest) -> ScenarioBlueprint:
             }
         ],
         tool_choice={"type": "tool", "name": "create_scenario_blueprint"},
+        timeout=httpx.Timeout(600.0, connect=10.0),
     )
+
+    # Detect truncated output before attempting to parse
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "Blueprint generation was truncated (hit max_tokens). "
+            "Try reducing the number of source tables or focus skills."
+        )
 
     # Extract the tool use result
     for block in response.content:
@@ -128,3 +142,54 @@ def generate_blueprint(request: GenerateRequest) -> ScenarioBlueprint:
             return blueprint
 
     raise RuntimeError("Claude did not return a tool use response")
+
+
+def repair_blueprint(
+    blueprint: ScenarioBlueprint,
+    failures: list[dict[str, object]],
+) -> ScenarioBlueprint:
+    """
+    Ask Claude to fix a blueprint whose validation queries returned wrong row counts.
+
+    Takes the original blueprint + list of failures (query_name, expected, actual, sql)
+    and returns a corrected blueprint through the same validation pipeline.
+    """
+    if not settings.anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured")
+
+    _check_rate_limit()
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    user_prompt = build_repair_prompt(blueprint, failures)
+    schema = ScenarioBlueprint.model_json_schema()
+
+    logger.info("Repairing blueprint: %d failure(s)", len(failures))
+
+    response = client.messages.create(
+        model=settings.anthropic_model,
+        max_tokens=settings.anthropic_max_tokens,
+        system=REPAIR_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+        tools=[
+            {
+                "name": "create_scenario_blueprint",
+                "description": "Return the corrected scenario blueprint",
+                "input_schema": schema,
+            }
+        ],
+        tool_choice={"type": "tool", "name": "create_scenario_blueprint"},
+        timeout=httpx.Timeout(600.0, connect=10.0),
+    )
+
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError("Blueprint repair was truncated (hit max_tokens)")
+
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "create_scenario_blueprint":
+            repaired = ScenarioBlueprint.model_validate(block.input)
+            _validate_blueprint_security(repaired)
+            logger.info("Blueprint repaired successfully")
+            return repaired
+
+    raise RuntimeError("Claude did not return a tool use response for repair")

@@ -137,6 +137,7 @@ def _run_validation_query(
             actual_columns=actual_columns,
             error=None if passed else (
                 f"Expected {query.expected_row_count} rows, got {actual_row_count}"
+                f" [query: {query.sql[:120]}]"
                 if not row_count_ok
                 else f"Missing columns: {set(query.expected_columns) - set(actual_columns or [])}"
             ),
