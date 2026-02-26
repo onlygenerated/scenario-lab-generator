@@ -1,5 +1,5 @@
 """
-Generate the getting_started.ipynb notebook dynamically from a blueprint.
+Generate lab files dynamically from a blueprint.
 
 The notebook has:
   1. Setup section (markdown + connection code + quick tests)
@@ -13,60 +13,124 @@ import json
 from ..models.blueprint import ScenarioBlueprint
 
 
+def generate_instructions_md(blueprint: ScenarioBlueprint) -> str:
+    """Generate the student-facing INSTRUCTIONS.md from structured blueprint data.
+
+    This ensures the Jupyter instructions match the frontend transformation steps
+    exactly — both use the same blueprint fields as their single source of truth.
+    """
+    lines: list[str] = []
+
+    # Title & description
+    lines.append(f"# {blueprint.title}")
+    lines.append("")
+    lines.append(blueprint.description)
+    lines.append("")
+
+    # Business context (the story)
+    lines.append("## Scenario")
+    lines.append("")
+    lines.append(blueprint.business_context)
+    lines.append("")
+
+    # Learning objectives
+    lines.append("## Learning Objectives")
+    lines.append("")
+    for obj in blueprint.learning_objectives:
+        lines.append(f"- {obj}")
+    lines.append("")
+
+    # Database connections
+    lines.append("## Database Connections")
+    lines.append("")
+    lines.append("| Database | Host | Port | Database | User | Password |")
+    lines.append("|----------|------|------|----------|------|----------|")
+    lines.append("| Source | `source-db` | `5432` | `source_db` | `labuser` | `labpass` |")
+    lines.append("| Target | `target-db` | `5432` | `target_db` | `labuser` | `labpass` |")
+    lines.append("")
+
+    # Source table schemas
+    lines.append("## Source Tables")
+    lines.append("")
+    for table in blueprint.source_tables:
+        lines.append(f"### `{table.table_name}`")
+        lines.append("")
+        lines.append(table.description)
+        lines.append("")
+        lines.append("| Column | Type | Description |")
+        lines.append("|--------|------|-------------|")
+        for col in table.columns:
+            pk = " (PK)" if col.is_primary_key else ""
+            lines.append(f"| `{col.name}` | {col.data_type.value}{pk} | {col.description} |")
+        lines.append("")
+
+    # Target table schemas
+    lines.append("## Target Tables")
+    lines.append("")
+    for table in blueprint.target_tables:
+        lines.append(f"### `{table.table_name}`")
+        lines.append("")
+        lines.append(table.description)
+        lines.append("")
+        lines.append("| Column | Type | Description |")
+        lines.append("|--------|------|-------------|")
+        for col in table.columns:
+            lines.append(f"| `{col.name}` | {col.data_type.value} | {col.description} |")
+        lines.append("")
+
+    # Transformation steps
+    lines.append("## Steps")
+    lines.append("")
+    for step in blueprint.transformation_steps:
+        lines.append(f"### Step {step.step_number}: {step.title}")
+        lines.append("")
+        lines.append(step.description)
+        if step.hint:
+            lines.append("")
+            lines.append(f"> **Hint:** {step.hint}")
+        lines.append("")
+
+    # Footer
+    lines.append("---")
+    lines.append("")
+    lines.append(f"**Difficulty:** {blueprint.difficulty.value.capitalize()} | "
+                 f"**Estimated time:** {blueprint.estimated_minutes} minutes")
+    lines.append("")
+    lines.append("Use the **2_getting_started.ipynb** notebook to begin. "
+                 "Click **Check My Work** in the app when you're done!")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def generate_notebook(blueprint: ScenarioBlueprint) -> str:
     """Generate a Jupyter notebook JSON string from a blueprint."""
     cells: list[dict] = []
 
-    # --- Setup section ---
+    # --- Setup section (single compact block) ---
     cells.append(_markdown_cell(
         "# Getting Started\n"
         "\n"
-        "This notebook is pre-configured with connections to your lab databases.\n"
-        "\n"
-        "## Database Connections\n"
-        "\n"
-        "| Database | Host | Port | Database | User | Password |\n"
-        "|----------|------|------|----------|------|----------|\n"
-        "| Source | `source-db` | `5432` | `source_db` | `labuser` | `labpass` |\n"
-        "| Target | `target-db` | `5432` | `target_db` | `labuser` | `labpass` |"
+        "Run the cell below to connect to your databases, then scroll down to **Your Work Starts Here**.\n"
+        "See **1_INSTRUCTIONS.md** for the full scenario, table schemas, and business rules."
     ))
 
     cells.append(_code_cell(
         "import pandas as pd\n"
         "from sqlalchemy import create_engine\n"
         "\n"
-        "# Connection strings\n"
         "source_engine = create_engine('postgresql://labuser:labpass@source-db:5432/source_db')\n"
         "target_engine = create_engine('postgresql://labuser:labpass@target-db:5432/target_db')\n"
         "\n"
-        "print('Engines created successfully!')"
-    ))
-
-    cells.append(_code_cell(
-        "# Quick test: list tables in source database\n"
-        "source_tables = pd.read_sql_query(\n"
-        "    \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'\",\n"
-        "    source_engine\n"
-        ")\n"
-        "print('Source tables:')\n"
-        "source_tables"
-    ))
-
-    cells.append(_code_cell(
-        "# Quick test: list tables in target database\n"
-        "target_tables = pd.read_sql_query(\n"
-        "    \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'\",\n"
-        "    target_engine\n"
-        ")\n"
-        "print('Target tables:')\n"
-        "target_tables"
+        "q = \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'\"\n"
+        "print('Source tables:', pd.read_sql_query(q, source_engine)['table_name'].tolist())\n"
+        "print('Target tables:', pd.read_sql_query(q, target_engine)['table_name'].tolist())\n"
+        "print('Ready!')"
     ))
 
     # --- Work section ---
     cells.append(_markdown_cell(
         "## Your Work Starts Here\n"
-        "\n"
-        "Read the **INSTRUCTIONS.md** tab for the full scenario and business rules.\n"
         "\n"
         f"Complete the {len(blueprint.transformation_steps)} steps below. "
         "Each step has instructions above an empty code cell for your work."

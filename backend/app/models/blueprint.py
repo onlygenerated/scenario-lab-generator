@@ -94,9 +94,25 @@ class SourceTable(BaseModel):
 
     @model_validator(mode="after")
     def validate_sample_data(self) -> "SourceTable":
-        """Validate that sample_data keys match columns and values fit declared types."""
+        """Validate that sample_data keys match columns, values fit declared types, and PKs are unique."""
         col_names = {col.name for col in self.columns}
         col_types = {col.name: col.data_type for col in self.columns}
+
+        # Check for duplicate primary key values
+        pk_cols = [col.name for col in self.columns if col.is_primary_key]
+        if pk_cols:
+            seen_keys: set[tuple[object, ...]] = set()
+            for i, row in enumerate(self.sample_data):
+                key = tuple(row.get(pk) for pk in pk_cols)
+                if key in seen_keys:
+                    pk_desc = ", ".join(f"{c}={row.get(c)!r}" for c in pk_cols)
+                    raise ValueError(
+                        f"sample_data row {i} for table '{self.table_name}' has "
+                        f"duplicate primary key ({pk_desc}). Primary key values "
+                        f"must be unique. Use a SERIAL PK and put duplicates in "
+                        f"non-PK columns instead."
+                    )
+                seen_keys.add(key)
 
         for i, row in enumerate(self.sample_data):
             # Check for unexpected keys
@@ -254,4 +270,20 @@ class ScenarioBlueprint(BaseModel):
     lab_instructions: str = Field(
         ...,
         description="Full Markdown lab instructions for the learner"
+    )
+
+    # Story epilogues shown on the results page
+    success_epilogue: str = Field(
+        default="",
+        max_length=500,
+        description="A fun 1-2 sentence story ending for when the learner passes all checks. "
+        "Should continue the business_context narrative with a satisfying conclusion. "
+        "Keep it under 400 characters."
+    )
+    failure_epilogue: str = Field(
+        default="",
+        max_length=500,
+        description="A lighthearted, encouraging 1-2 sentence story ending for when some checks fail. "
+        "Keep it extremely mild — no real consequences — and encourage trying again. "
+        "Keep it under 400 characters."
     )

@@ -48,6 +48,20 @@ def _check_solution_safety(script: str) -> str | None:
     return None
 
 
+def _sanitize_datetime_calls(script: str) -> str:
+    """Strip format= args from pd.to_datetime() calls.
+
+    The AI frequently generates pd.to_datetime(col, format="%Y-%m-%d") with
+    dates in a different format (e.g. "MM/DD/YYYY"), causing ValueError.
+    Removing the format= kwarg lets pandas 2.x infer the format automatically.
+    """
+    return _re.sub(
+        r"(pd\.to_datetime\([^)]*?),\s*format\s*=\s*[\"'][^\"']*[\"']",
+        r"\1",
+        script,
+    )
+
+
 def generate_solution_script(blueprint: ScenarioBlueprint) -> str:
     """
     Produce a self-contained Python script that solves the lab.
@@ -60,8 +74,8 @@ def generate_solution_script(blueprint: ScenarioBlueprint) -> str:
     )
 
     if has_solution_code:
-        return _script_from_solution_code(blueprint)
-    return _script_from_notebook(blueprint)
+        return _sanitize_datetime_calls(_script_from_solution_code(blueprint))
+    return _sanitize_datetime_calls(_script_from_notebook(blueprint))
 
 
 def _script_from_solution_code(blueprint: ScenarioBlueprint) -> str:

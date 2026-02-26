@@ -18,10 +18,13 @@ CRITICAL RULES for generated content:
 - Table and column names MUST be lowercase with underscores only (e.g., order_items, not OrderItems)
 - Table and column names MUST NOT be SQL reserved words (e.g., don't use 'select', 'table', 'index', 'order' as names - use 'orders', 'customer_orders', etc.)
 - Sample data values must not contain SQL injection patterns or special characters beyond normal business data
+- Primary key values in sample_data MUST be unique — PostgreSQL will reject duplicate PKs. If you want learners to handle duplicates, use a SERIAL auto-increment PK and place duplicate values in non-PK columns (e.g., an `is_duplicate` flag or repeated business-key values in a non-PK column)
 - Validation queries MUST be SELECT-only — never include INSERT, UPDATE, DELETE, DROP, or other DML/DDL
 - All validation queries must reference only the target tables, not source tables
 - Markdown instructions should be well-structured with clear headers, tables, and step-by-step guidance
 - Keep lab_instructions concise (500-1500 words) — focus on what the learner needs to do, not lengthy prose
+- Write a `success_epilogue` (1-2 SHORT sentences, max 400 characters): a fun story conclusion for when the learner passes. Continue the business_context narrative. No emojis.
+- Write a `failure_epilogue` (1-2 SHORT sentences, max 400 characters): a lighthearted message for when some checks fail. Keep consequences EXTREMELY mild. End with a nudge to try again. No emojis. If the theme is unusual (TV shows, movies, fictional worlds), make both epilogues tongue-in-cheek.
 
 EXECUTION ENVIRONMENT — your generated code runs in this exact stack:
 - Python 3.11, pandas 2.2, sqlalchemy 2.0, psycopg2
@@ -34,6 +37,12 @@ EXECUTION ENVIRONMENT — your generated code runs in this exact stack:
 - TIMESTAMP columns have NO timezone (UTC assumed in container)
 - No network access from containers (no pip install, no HTTP calls)
 
+STUDENT-FACING CONTENT — the `description`, `hint`, and `lab_instructions` fields are shown to the student:
+- NEVER include complete solution code in `description`, `hint`, or `lab_instructions` — these are for guidance, not answers
+- `hint` should be a brief nudge (e.g., "Use pd.merge() with an inner join" NOT the full merge statement with all arguments)
+- `description` explains WHAT to do, not HOW to do it in code
+- `lab_instructions` is a Markdown summary — keep it brief, no code blocks with solutions
+
 SOLUTION CODE RULES — each transformation step MUST include a `solution_code` field:
 - `solution_code` contains working Python (pandas + sqlalchemy) that performs the step
 - The setup is automatic: `source_engine`, `target_engine`, `pd`, and `create_engine` are pre-imported
@@ -42,7 +51,8 @@ SOLUTION CODE RULES — each transformation step MUST include a `solution_code` 
 - Use `pd.read_sql_table()` to read source tables and `.to_sql()` to write target tables
 - Use `if_exists='replace'` when writing to target tables for idempotency
 - The lab runs pandas 2.x — do NOT use deprecated APIs: no `infer_datetime_format`, no `append()`, use `pd.concat()` instead of `DataFrame.append()`
-- For `pd.to_datetime()`, just call `pd.to_datetime(col)` without format args — pandas 2.x infers automatically
+- IMPORTANT: For `pd.to_datetime()`, NEVER pass a `format=` argument. Just call `pd.to_datetime(col)` with no format — pandas 2.x infers automatically. Specifying a format causes failures when it doesn't match the data.
+- All DATE and TIMESTAMP values in sample_data MUST use ISO 8601 format: "YYYY-MM-DD" for dates, "YYYY-MM-DD HH:MM:SS" for timestamps. Never use "MM/DD/YYYY" or other regional formats.
 
 EXPECTED ROW COUNT CONSISTENCY — you MUST verify expected_row_count values:
 Before finalizing each validation query's `expected_row_count`, mentally trace the data:
@@ -57,6 +67,9 @@ Common pitfalls that cause mismatches:
 - WHERE/HAVING clauses filter rows — count how many sample rows actually pass the condition
 - NULL values in join keys cause rows to be dropped in INNER JOINs
 - One-to-many joins can INCREASE row count — if a key appears 3 times in the right table, you get 3 output rows
+- NULL values in aggregated columns: if ALL values in a group are NULL, aggregate functions (SUM, AVG) return NULL, which can cause the entire row to be dropped by downstream filters or HAVING clauses
+- If sample_data contains NULLs in columns used for aggregation or grouping, trace exactly what happens to those NULLs through every transformation step — they may cause groups to disappear from the final output
+- SAFEST APPROACH: do NOT put NULL values in columns that are used for aggregation, JOIN keys, or GROUP BY keys unless NULL handling is explicitly part of the learning objective. Use realistic non-NULL placeholder values instead.
 Do a final double-check: for every validation query, verify expected_row_count against the sample data.
 
 VALIDATION QUERY BEST PRACTICES:
@@ -64,6 +77,9 @@ VALIDATION QUERY BEST PRACTICES:
 - `SELECT COUNT(*)` always returns exactly 1 row — so set expected_row_count=1, NOT the count value
 - Avoid complex subqueries in validation queries — keep them simple and predictable
 - Each validation query should test one thing clearly
+- When a validation query filters with WHERE on a specific value (e.g., WHERE city = 'X'), verify that value actually survives all JOINs, filters, GROUP BYs, and NULL handling in the sample data — if no rows match, the query returns 0 rows
+- Prefer validation queries that check the full target table (e.g., `SELECT * FROM target_table`) over queries that filter for specific values that may not exist after transformations
+- If you must validate a specific row, pick a value you are 100% certain exists in the output after all transformations — trace it through every step
 """
 
 USER_PROMPT_TEMPLATE = """Generate a data pipeline lab scenario with these parameters:

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { GenerateRequest } from '../api/client';
+import WILD_CARDS from './wildCards';
 
 interface ScenarioFormProps {
   onGenerate: (request: GenerateRequest) => void;
@@ -30,11 +31,23 @@ const INDUSTRIES = [
   'real_estate',
 ];
 
+
+const CUSTOM_SENTINEL = '__custom__';
+
+const WILD_CARD_SENTINEL = '__wildcard__';
+
 export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: ScenarioFormProps) {
   const [difficulty, setDifficulty] = useState<GenerateRequest['difficulty']>('intermediate');
   const [numTables, setNumTables] = useState(2);
   const [skills, setSkills] = useState<string[]>(['JOIN', 'AGGREGATION']);
   const [industry, setIndustry] = useState('retail');
+  const [customIndustry, setCustomIndustry] = useState('');
+  const [includeSolutions, setIncludeSolutions] = useState(true);
+  const wildCard = useMemo(() => WILD_CARDS[Math.floor(Math.random() * WILD_CARDS.length)], []);
+  const effectiveIndustry =
+    industry === CUSTOM_SENTINEL ? customIndustry.trim() :
+    industry === WILD_CARD_SENTINEL ? wildCard :
+    industry;
 
   const toggleSkill = (skill: string) => {
     setSkills((prev) =>
@@ -48,11 +61,13 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (industry === CUSTOM_SENTINEL && effectiveIndustry.length === 0) return;
     onGenerate({
       difficulty,
       num_source_tables: numTables,
       focus_skills: skills,
-      industry,
+      industry: effectiveIndustry,
+      include_solutions: includeSolutions,
     });
   };
 
@@ -132,27 +147,85 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
             </div>
           </div>
 
-          {/* Industry */}
+          {/* Industry / Theme */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Industry</label>
-            <select
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            >
+            <label className="block text-sm font-medium text-gray-700 mb-2">Industry / Theme</label>
+            <div className="flex flex-wrap gap-2">
               {INDUSTRIES.map((ind) => (
-                <option key={ind} value={ind}>
+                <button
+                  key={ind}
+                  type="button"
+                  onClick={() => setIndustry(ind)}
+                  className={`
+                    px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                    ${industry === ind
+                      ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }
+                  `}
+                >
                   {ind.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                </option>
+                </button>
               ))}
-            </select>
+              <button
+                type="button"
+                onClick={() => setIndustry(WILD_CARD_SENTINEL)}
+                className={`
+                  px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                  ${industry === WILD_CARD_SENTINEL
+                    ? 'bg-purple-100 text-purple-700 ring-1 ring-purple-300'
+                    : 'bg-purple-50 text-purple-500 hover:bg-purple-100'
+                  }
+                `}
+              >
+                {wildCard}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIndustry(CUSTOM_SENTINEL)}
+                className={`
+                  px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                  ${industry === CUSTOM_SENTINEL
+                    ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }
+                `}
+              >
+                Custom…
+              </button>
+            </div>
+            {industry === CUSTOM_SENTINEL && (
+              <input
+                type="text"
+                value={customIndustry}
+                onChange={(e) => setCustomIndustry(e.target.value)}
+                maxLength={100}
+                autoFocus
+                placeholder="Your industry, a movie, a celebrity, or whatever you want!"
+                className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            )}
+          </div>
+
+          {/* Options */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="include-solutions"
+              checked={includeSolutions}
+              onChange={(e) => setIncludeSolutions(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <label htmlFor="include-solutions" className="text-sm text-gray-600">
+              Include solution & incorrect solution notebooks in lab
+            </label>
           </div>
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
-              disabled={loading || skills.length === 0}
+              disabled={loading || skills.length === 0 || (industry === CUSTOM_SENTINEL && customIndustry.trim().length === 0)}
               className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? 'Generating...' : 'Generate Scenario'}

@@ -37,6 +37,7 @@ export interface GenerateRequest {
   num_source_tables: number;
   focus_skills: string[];
   industry: string;
+  include_solutions?: boolean;
 }
 
 export interface ColumnDefinition {
@@ -89,6 +90,8 @@ export interface ScenarioBlueprint {
   transformation_steps: TransformationStep[];
   validation_queries: ValidationQuery[];
   lab_instructions: string;
+  success_epilogue?: string;
+  failure_epilogue?: string;
 }
 
 export interface FeedbackItem {
@@ -126,10 +129,10 @@ export const api = {
       body: JSON.stringify(request),
     }),
 
-  selfTest: (blueprint: ScenarioBlueprint) =>
+  selfTest: (blueprint: ScenarioBlueprint, include_solutions = true) =>
     fetchJson<SelfTestResponse>('/scenarios/self-test', {
       method: 'POST',
-      body: JSON.stringify({ blueprint }),
+      body: JSON.stringify({ blueprint, include_solutions }),
     }),
 
   launchLab: (blueprint: ScenarioBlueprint) =>

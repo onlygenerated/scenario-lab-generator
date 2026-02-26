@@ -75,6 +75,10 @@ class FeedbackResponse(BaseModel):
 class SelfTestRequest(BaseModel):
     """Request to self-test a blueprint."""
     blueprint: ScenarioBlueprint
+    include_solutions: bool = Field(
+        default=True,
+        description="Whether to include 3_solution.ipynb and 4_incorrect_solution.ipynb in the lab workspace",
+    )
 
 
 class SelfTestResponse(BaseModel):

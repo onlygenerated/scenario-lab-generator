@@ -17,7 +17,7 @@ from python_on_whales import DockerClient
 from ..config import settings
 from ..models.blueprint import ScenarioBlueprint
 from ..models.lab import LabSession, LabStatus
-from .notebook_generator import generate_incorrect_notebook, generate_notebook, generate_solution_notebook
+from .notebook_generator import generate_incorrect_notebook, generate_instructions_md, generate_notebook, generate_solution_notebook
 from .seed_generator import generate_source_sql, generate_target_sql
 
 # Track allocated ports to avoid collisions
@@ -41,7 +41,7 @@ def _release_port(port: int) -> None:
     _allocated_ports.discard(port)
 
 
-def _prepare_lab_directory(lab_id: str, blueprint: ScenarioBlueprint, jupyter_port: int) -> Path:
+def _prepare_lab_directory(lab_id: str, blueprint: ScenarioBlueprint, jupyter_port: int, include_solutions: bool = True) -> Path:
     """
     Create the lab workspace directory with all generated files:
     - docker-compose.yml (from Jinja2 template)
@@ -75,26 +75,28 @@ def _prepare_lab_directory(lab_id: str, blueprint: ScenarioBlueprint, jupyter_po
     shutil.copy2(_TEMPLATES_DIR / "jupyter" / "Dockerfile", jupyter_dir / "Dockerfile")
 
     # Generate workspace: dynamic notebook from blueprint + instructions
+    # Numbered prefixes control file listing order in JupyterLab's sidebar.
+    # Dotfile prefix hides internal notebooks from the student.
     workspace_dir = lab_dir / "workspace"
     workspace_dir.mkdir(exist_ok=True)
 
+    instructions_md = generate_instructions_md(blueprint)
+    (workspace_dir / "1_INSTRUCTIONS.md").write_text(instructions_md, encoding="utf-8")
+
     notebook_json = generate_notebook(blueprint)
-    (workspace_dir / "getting_started.ipynb").write_text(notebook_json, encoding="utf-8")
+    (workspace_dir / "2_getting_started.ipynb").write_text(notebook_json, encoding="utf-8")
 
-    solution_json = generate_solution_notebook(blueprint)
-    (workspace_dir / "solution.ipynb").write_text(solution_json, encoding="utf-8")
+    if include_solutions:
+        solution_json = generate_solution_notebook(blueprint)
+        (workspace_dir / "3_solution.ipynb").write_text(solution_json, encoding="utf-8")
 
-    incorrect_json = generate_incorrect_notebook(blueprint)
-    (workspace_dir / "incorrect_solution.ipynb").write_text(incorrect_json, encoding="utf-8")
-
-    (workspace_dir / "INSTRUCTIONS.md").write_text(
-        blueprint.lab_instructions, encoding="utf-8"
-    )
+        incorrect_json = generate_incorrect_notebook(blueprint)
+        (workspace_dir / "4_incorrect_solution.ipynb").write_text(incorrect_json, encoding="utf-8")
 
     return lab_dir
 
 
-def launch_lab(blueprint: ScenarioBlueprint) -> LabSession:
+def launch_lab(blueprint: ScenarioBlueprint, include_solutions: bool = True) -> LabSession:
     """
     Launch a new lab environment from a blueprint.
 
@@ -115,7 +117,7 @@ def launch_lab(blueprint: ScenarioBlueprint) -> LabSession:
     )
 
     try:
-        lab_dir = _prepare_lab_directory(lab_id, blueprint, jupyter_port)
+        lab_dir = _prepare_lab_directory(lab_id, blueprint, jupyter_port, include_solutions)
         session.lab_dir = str(lab_dir)
 
         # Create Docker client for this specific compose project
@@ -128,7 +130,7 @@ def launch_lab(blueprint: ScenarioBlueprint) -> LabSession:
         docker.compose.up(detach=True, build=True)
 
         session.status = LabStatus.running
-        session.jupyter_url = f"http://localhost:{jupyter_port}/lab?token=labtoken"
+        session.jupyter_url = f"http://localhost:{jupyter_port}/lab/tree/1_INSTRUCTIONS.md?token=labtoken"
 
     except Exception as e:
         session.status = LabStatus.error

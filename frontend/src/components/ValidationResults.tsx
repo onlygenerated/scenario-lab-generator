@@ -1,13 +1,14 @@
-import type { ValidationResult } from '../api/client';
+import type { ValidationResult, ScenarioBlueprint } from '../api/client';
 
 interface ValidationResultsProps {
   results: ValidationResult[];
   allPassed: boolean;
+  blueprint: ScenarioBlueprint | null;
   onBack: () => void;
   onRetry: () => void;
 }
 
-export function ValidationResults({ results, allPassed, onBack, onRetry }: ValidationResultsProps) {
+export function ValidationResults({ results, allPassed, blueprint, onBack, onRetry }: ValidationResultsProps) {
   const passCount = results.filter((r) => r.passed).length;
 
   return (
@@ -43,6 +44,12 @@ export function ValidationResults({ results, allPassed, onBack, onRetry }: Valid
             : 'Review the failed checks below and try again.'
           }
         </p>
+        {(() => {
+          const epilogue = allPassed ? blueprint?.success_epilogue : blueprint?.failure_epilogue;
+          return epilogue ? (
+            <p className="text-sm text-gray-600 italic mt-3">{epilogue}</p>
+          ) : null;
+        })()}
       </div>
 
       {/* Individual Results */}

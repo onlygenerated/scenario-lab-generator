@@ -99,7 +99,10 @@ def self_test_scenario(request: SelfTestRequest) -> SelfTestResponse:
     from ..services.self_test import run_self_test
 
     try:
-        passed, session, results, error = run_self_test(request.blueprint)
+        passed, session, results, error = run_self_test(
+            request.blueprint,
+            include_solutions=request.include_solutions,
+        )
 
         if passed and session:
             # Register the session so existing /labs/{id}/* endpoints work on it

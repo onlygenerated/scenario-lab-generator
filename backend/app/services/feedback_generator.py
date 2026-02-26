@@ -34,19 +34,19 @@ def _extract_student_code(lab_dir: str) -> str:
 
     Checks getting_started.ipynb first. If its work cells are empty stubs
     (no pipeline code like .to_sql or .merge), falls back to
-    incorrect_solution.ipynb — the student likely ran that notebook instead.
+    4_incorrect_solution.ipynb — the student likely ran that notebook instead.
     """
     workspace = Path(lab_dir) / "workspace"
 
     # Try getting_started first (the primary student notebook)
-    code = _read_notebook_code(workspace / "getting_started.ipynb")
+    code = _read_notebook_code(workspace / "2_getting_started.ipynb")
     if code and _has_pipeline_code(code):
         return _truncate(code)
 
     # getting_started is empty/stubs — try incorrect_solution
-    alt_code = _read_notebook_code(workspace / "incorrect_solution.ipynb")
+    alt_code = _read_notebook_code(workspace / "4_incorrect_solution.ipynb")
     if alt_code and _has_pipeline_code(alt_code):
-        logger.debug("Using incorrect_solution.ipynb for feedback (getting_started is empty)")
+        logger.debug("Using 4_incorrect_solution.ipynb for feedback (getting_started is empty)")
         return _truncate(alt_code)
 
     # Fall back to whatever we got (even if it's stubs)

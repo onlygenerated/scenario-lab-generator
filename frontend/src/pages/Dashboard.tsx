@@ -6,6 +6,7 @@ import type { WorkflowStep } from '../components/StepIndicator';
 import { ScenarioForm } from '../components/ScenarioForm';
 import { LabWorkspace } from '../components/LabWorkspace';
 import { ValidationResults } from '../components/ValidationResults';
+import { LoadingTips } from '../components/LoadingTips';
 
 export function Dashboard() {
   const [step, setStep] = useState<WorkflowStep>('CONFIGURE');
@@ -20,6 +21,8 @@ export function Dashboard() {
   const [validationResults, setValidationResults] = useState<ValidationResult[] | null>(null);
   const [allPassed, setAllPassed] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [includeSolutions, setIncludeSolutions] = useState(true);
 
   // Elapsed timer for loading states
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -44,10 +47,10 @@ export function Dashboard() {
     };
   }, [loading, loadingMessage]);
 
-  const runSelfTest = async (bp: ScenarioBlueprint) => {
-    setLoadingMessage('Testing scenario...');
+  const runSelfTest = async (bp: ScenarioBlueprint, withSolutions = true) => {
+    setLoadingMessage('Testing scenario (this may take a few minutes)...');
     try {
-      const result = await api.selfTest(bp);
+      const result = await api.selfTest(bp, withSolutions);
       if (result.passed && result.lab_id) {
         setLabId(result.lab_id);
         setLabStatus('running');
@@ -64,6 +67,9 @@ export function Dashboard() {
   };
 
   const handleGenerate = async (request: GenerateRequest) => {
+    const withSolutions = request.include_solutions !== false;
+    setSelectedSkills(request.focus_skills);
+    setIncludeSolutions(withSolutions);
     setLoading(true);
     setError(null);
     setStep('GENERATE');
@@ -71,7 +77,7 @@ export function Dashboard() {
     try {
       const response = await api.generateScenario(request);
       setBlueprint(response.blueprint);
-      await runSelfTest(response.blueprint);
+      await runSelfTest(response.blueprint, withSolutions);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Generation failed');
       setStep('CONFIGURE');
@@ -85,11 +91,16 @@ export function Dashboard() {
     setLoading(true);
     setError(null);
     setStep('GENERATE');
-    setLoadingMessage('Generating your scenario (this may take a few minutes)...');
+    setLoadingMessage('Launching demo lab...');
     try {
       const response = await api.getDemoBlueprint();
       setBlueprint(response.blueprint);
-      await runSelfTest(response.blueprint);
+      // Demo blueprint is pre-validated — skip self-test and launch directly
+      const lab = await api.launchLab(response.blueprint);
+      setLabId(lab.lab_id);
+      setLabStatus(lab.status);
+      setJupyterUrl(lab.jupyter_url);
+      setStep('LAB');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load demo');
       setStep('CONFIGURE');
@@ -204,7 +215,7 @@ export function Dashboard() {
           {step !== 'CONFIGURE' && (
             <button
               onClick={handleReset}
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              className="text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors"
             >
               Start Over
             </button>
@@ -238,7 +249,7 @@ export function Dashboard() {
       <main className="max-w-5xl mx-auto px-6 pb-12">
         {/* Loading overlay */}
         {loading && loadingMessage && (
-          <div className="flex flex-col items-center justify-center py-20">
+          <div className="flex flex-col items-center pt-8">
             <div className="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
             <p className="text-sm text-gray-500">
               {loadingMessage}
@@ -251,17 +262,29 @@ export function Dashboard() {
                 This is taking longer than expected. You may want to start over.
               </p>
             )}
+            {step === 'GENERATE' && <LoadingTips skills={selectedSkills} />}
           </div>
         )}
 
         {/* Configure */}
         {step === 'CONFIGURE' && (
-          <ScenarioForm
-            onGenerate={handleGenerate}
-            onDemo={handleDemo}
-            loading={loading}
-            demoMode={true}
-          />
+          <>
+            <div className="max-w-2xl mx-auto mb-6">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                ScenarioLab generates hands-on practice labs for building <strong>data pipelines</strong> — automated
+                workflows that move and reshape data between systems. You'll practice{' '}
+                <strong>ETL (Extract, Transform, Load)</strong> skills by reading data from source tables, transforming
+                it with Python and SQL, and loading results into a target database. Pick your parameters below and
+                AI will create a unique scenario with its own storyline, sample data, and validation checks.
+              </p>
+            </div>
+            <ScenarioForm
+              onGenerate={handleGenerate}
+              onDemo={handleDemo}
+              loading={loading}
+              demoMode={true}
+            />
+          </>
         )}
 
         {/* Lab */}
@@ -284,6 +307,7 @@ export function Dashboard() {
           <ValidationResults
             results={validationResults}
             allPassed={allPassed}
+            blueprint={blueprint}
             onBack={() => setStep('LAB')}
             onRetry={() => setStep('LAB')}
           />

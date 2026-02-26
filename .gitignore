@@ -20,6 +20,9 @@ frontend/dist/
 # Lab workspaces (generated at runtime)
 lab_workspaces/
 
+# Claude Code (local settings)
+.claude/
+
 # IDE
 .vscode/
 .idea/

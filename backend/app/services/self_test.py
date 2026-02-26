@@ -13,11 +13,15 @@ Workflow:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 from python_on_whales import DockerClient
 
+from ..config import settings
 from ..models.blueprint import ScenarioBlueprint
 from ..models.lab import LabSession, LabStatus, ValidationResult
 from . import orchestrator, validator
@@ -31,6 +35,8 @@ from .solution_runner import (
 )
 
 logger = logging.getLogger(__name__)
+
+_FAILED_LABS_DIR = Path(settings.lab_base_dir) / "failed_labs"
 
 # Timeouts
 _DB_READY_TIMEOUT_S = 120
@@ -86,7 +92,7 @@ def _verify_incorrect_fails(
     Tries escalation levels 0 and 1. Returns the level that failed, or None if
     the incorrect notebook passes at all levels (graceful degradation).
 
-    Side-effect: overwrites workspace/incorrect_solution.ipynb if escalation
+    Side-effect: overwrites workspace/4_incorrect_solution.ipynb if escalation
     is needed so the workspace file matches the version that actually fails.
     """
     for level in (0, 1):
@@ -144,29 +150,72 @@ def _overwrite_incorrect_notebook(
     session: LabSession,
     escalation_level: int,
 ) -> None:
-    """Overwrite the workspace incorrect_solution.ipynb with an escalated version."""
+    """Overwrite the workspace 4_incorrect_solution.ipynb with an escalated version."""
     from pathlib import Path
 
     if not session.lab_dir:
         return
 
     workspace_dir = Path(session.lab_dir) / "workspace"
-    incorrect_path = workspace_dir / "incorrect_solution.ipynb"
+    incorrect_path = workspace_dir / "4_incorrect_solution.ipynb"
 
     try:
         notebook_json = generate_incorrect_notebook(blueprint, escalation_level)
         incorrect_path.write_text(notebook_json, encoding="utf-8")
         logger.info(
-            "Overwrote incorrect_solution.ipynb with level %d mutations.",
+            "Overwrote 4_incorrect_solution.ipynb with level %d mutations.",
             escalation_level,
         )
     except Exception as e:
         logger.warning("Failed to overwrite incorrect notebook: %s", e)
 
 
+def _save_failed_lab(
+    blueprint: ScenarioBlueprint,
+    error: str,
+    solution_script: str | None = None,
+    solution_output: str | None = None,
+    validation_results: list[ValidationResult] | None = None,
+    attempt: int = 1,
+) -> None:
+    """Save diagnostic info for a failed self-test to disk for later troubleshooting."""
+    try:
+        _FAILED_LABS_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        dump_path = _FAILED_LABS_DIR / f"failed_{ts}.json"
+
+        diagnostics = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "attempt": attempt,
+            "error": error,
+            "blueprint": blueprint.model_dump(mode="json"),
+            "solution_script": solution_script,
+            "solution_output": solution_output,
+            "validation_results": [
+                {
+                    "query_name": r.query_name,
+                    "passed": r.passed,
+                    "expected_row_count": r.expected_row_count,
+                    "actual_row_count": r.actual_row_count,
+                    "error": r.error,
+                }
+                for r in (validation_results or [])
+            ],
+        }
+
+        dump_path.write_text(
+            json.dumps(diagnostics, indent=2, default=str),
+            encoding="utf-8",
+        )
+        logger.info("Saved failed lab diagnostics to %s", dump_path)
+    except Exception as e:
+        logger.warning("Could not save failed lab diagnostics: %s", e)
+
+
 def run_self_test(
     blueprint: ScenarioBlueprint,
     max_retries: int = 1,
+    include_solutions: bool = True,
 ) -> tuple[bool, LabSession | None, list[ValidationResult], str | None]:
     """
     Self-test a blueprint by launching a lab, solving it, and validating.
@@ -185,30 +234,40 @@ def run_self_test(
 
     while attempt <= max_retries:
         session: LabSession | None = None
+        script: str | None = None
+        output: str | None = None
         attempt += 1
 
         try:
             # 1. Launch the full Docker stack
             logger.info("Self-test (attempt %d/%d): launching lab...", attempt, max_retries + 1)
-            session = orchestrator.launch_lab(current_blueprint)
+            session = orchestrator.launch_lab(current_blueprint, include_solutions=include_solutions)
 
             if session.status == LabStatus.error:
-                return False, None, [], f"Lab launch failed: {session.error_message}"
+                err = f"Lab launch failed: {session.error_message}"
+                _save_failed_lab(current_blueprint, err, attempt=attempt)
+                return False, None, [], err
 
             docker = orchestrator.get_lab_docker_client(session)
             if not docker:
                 orchestrator.stop_lab(session)
-                return False, None, [], "Could not get Docker client for lab"
+                err = "Could not get Docker client for lab"
+                _save_failed_lab(current_blueprint, err, attempt=attempt)
+                return False, None, [], err
 
             # 2. Wait for both databases to be ready
             logger.info("Self-test: waiting for databases...")
             if not _wait_for_db(docker, "source-db", "source_db"):
                 orchestrator.stop_lab(session)
-                return False, None, [], "Source database did not become ready in time"
+                err = "Source database did not become ready in time"
+                _save_failed_lab(current_blueprint, err, attempt=attempt)
+                return False, None, [], err
 
             if not _wait_for_db(docker, "target-db", "target_db"):
                 orchestrator.stop_lab(session)
-                return False, None, [], "Target database did not become ready in time"
+                err = "Target database did not become ready in time"
+                _save_failed_lab(current_blueprint, err, attempt=attempt)
+                return False, None, [], err
 
             # 3. Brief delay for Jupyter container to finish startup
             logger.info("Self-test: waiting for Jupyter container...")
@@ -221,8 +280,10 @@ def run_self_test(
 
             if not success:
                 logger.warning("Self-test: solution execution failed. Output: %s", output[:2000])
+                err = f"Solution script failed: {output[:2000]}"
+                _save_failed_lab(current_blueprint, err, script, output, attempt=attempt)
                 orchestrator.stop_lab(session)
-                return False, None, [], f"Solution script failed: {output[:2000]}"
+                return False, None, [], err
 
             # 5. Run validation queries
             logger.info("Self-test: running validation queries...")
@@ -231,7 +292,8 @@ def run_self_test(
 
             if all_passed:
                 # 6. All passed! Verify the incorrect notebook actually fails.
-                _verify_incorrect_fails(current_blueprint, session, docker)
+                if include_solutions:
+                    _verify_incorrect_fails(current_blueprint, session, docker)
 
                 # 7. Wipe target tables so student starts fresh
                 logger.info("Self-test: wiping target tables for student...")
@@ -252,7 +314,9 @@ def run_self_test(
                 row_failures = _collect_row_count_failures(results, current_blueprint)
                 if not row_failures:
                     # Non-row-count failures can't be repaired this way
-                    return False, None, results, f"Validation failed: {details}"
+                    err = f"Validation failed: {details}"
+                    _save_failed_lab(current_blueprint, err, script, output, results, attempt)
+                    return False, None, results, err
 
                 logger.info(
                     "Self-test: attempting repair (%d row-count failure(s))...",
@@ -262,18 +326,24 @@ def run_self_test(
                     current_blueprint = repair_blueprint(current_blueprint, row_failures)
                 except Exception as repair_err:
                     logger.warning("Self-test: repair failed: %s", repair_err)
-                    return False, None, results, f"Validation failed: {details}"
+                    err = f"Validation failed: {details}"
+                    _save_failed_lab(current_blueprint, err, script, output, results, attempt)
+                    return False, None, results, err
             else:
-                return False, None, results, f"Validation failed: {details}"
+                err = f"Validation failed: {details}"
+                _save_failed_lab(current_blueprint, err, script, output, results, attempt)
+                return False, None, results, err
 
         except Exception as e:
             logger.exception("Self-test: unexpected error")
+            err = f"Unexpected error: {str(e)}"
+            _save_failed_lab(current_blueprint, err, script, output, attempt=attempt)
             if session and session.status == LabStatus.running:
                 try:
                     orchestrator.stop_lab(session)
                 except Exception:
                     pass
-            return False, None, [], f"Unexpected error: {str(e)}"
+            return False, None, [], err
 
     # Should not reach here, but just in case
     return False, None, [], "Self-test exhausted all retries"
