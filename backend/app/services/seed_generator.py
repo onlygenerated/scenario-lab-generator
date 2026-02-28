@@ -119,14 +119,23 @@ def generate_source_sql(blueprint: ScenarioBlueprint) -> str:
 
 
 def generate_target_sql(blueprint: ScenarioBlueprint) -> str:
-    """Generate the seed SQL for the target database (schema only + validator role)."""
-    parts = ["-- Target database seed SQL (auto-generated from blueprint)\n"]
-    parts.append("-- Empty target table schemas\n\n")
+    """Generate the seed SQL for the target database (schema only + validator role).
 
-    for table in blueprint.target_tables:
-        parts.append(f"-- Table: {table.table_name}\n")
-        parts.append(_create_table_sql(table.table_name, table.columns))
-        parts.append("\n")
+    For data-modeling topic, target tables are NOT pre-created — the learner must
+    CREATE them. The validator role and ALTER DEFAULT PRIVILEGES are always set up
+    so the validator can SELECT from learner-created tables.
+    """
+    parts = ["-- Target database seed SQL (auto-generated from blueprint)\n"]
+
+    if blueprint.topic != "data-modeling":
+        # ETL: pre-create target tables for the learner to populate
+        parts.append("-- Empty target table schemas\n\n")
+        for table in blueprint.target_tables:
+            parts.append(f"-- Table: {table.table_name}\n")
+            parts.append(_create_table_sql(table.table_name, table.columns))
+            parts.append("\n")
+    else:
+        parts.append("-- Data modeling: target tables are NOT pre-created (learner must CREATE them)\n\n")
 
     # Create read-only validator role for secure validation queries
     parts.append("-- Read-only validator role for completion checking\n")
@@ -138,11 +147,12 @@ def generate_target_sql(blueprint: ScenarioBlueprint) -> str:
     parts.append("END\n")
     parts.append("$$;\n\n")
 
-    # Grant SELECT-only on all target tables
-    for table in blueprint.target_tables:
-        parts.append(f'GRANT SELECT ON "{table.table_name}" TO validator;\n')
+    if blueprint.topic != "data-modeling":
+        # ETL: grant SELECT on pre-created target tables
+        for table in blueprint.target_tables:
+            parts.append(f'GRANT SELECT ON "{table.table_name}" TO validator;\n')
 
-    # Default privileges for future tables
+    # Default privileges for future tables (covers learner-created tables in data-modeling)
     parts.append("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO validator;\n")
 
     result = "".join(parts)

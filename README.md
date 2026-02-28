@@ -1,4 +1,4 @@
-# ScenarioLabGenerator
+# Labwright
 
 AI-powered scenario-based lab training for data pipeline / ETL skills.
 
@@ -81,7 +81,7 @@ docker compose up --build
 ## Project Structure
 
 ```
-ScenarioLabGenerator/
+Labwright/
 ├── backend/               # FastAPI + Python
 │   ├── app/
 │   │   ├── main.py        # App entry point

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-ScenarioLabGenerator — AI-powered scenario-based lab training for data pipeline / ETL skills. PoC demonstrating: parameter selection → AI blueprint generation → Docker lab provisioning → JupyterLab workspace → automated validation.
+Labwright — AI-powered scenario-based lab training for data pipeline / ETL skills. PoC demonstrating: parameter selection → AI blueprint generation → Docker lab provisioning → JupyterLab workspace → automated validation.
 
 ## Tech Stack
 

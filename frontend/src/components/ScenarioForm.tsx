@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { GenerateRequest } from '../api/client';
+import { TOPIC_CONFIG } from '../data/topicConfig';
 import WILD_CARDS from './wildCards';
 
 interface ScenarioFormProps {
@@ -7,18 +8,8 @@ interface ScenarioFormProps {
   onDemo: () => void;
   loading: boolean;
   demoMode: boolean;
+  topicId?: string;
 }
-
-const SKILL_OPTIONS = [
-  'JOIN',
-  'AGGREGATION',
-  'WINDOW_FUNCTION',
-  'PIVOT',
-  'CLEANING',
-  'DATE_HANDLING',
-  'DEDUPLICATION',
-  'TYPE_CASTING',
-];
 
 const INDUSTRIES = [
   'retail',
@@ -36,10 +27,11 @@ const CUSTOM_SENTINEL = '__custom__';
 
 const WILD_CARD_SENTINEL = '__wildcard__';
 
-export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: ScenarioFormProps) {
+export function ScenarioForm({ onGenerate, onDemo, loading, demoMode, topicId }: ScenarioFormProps) {
+  const config = TOPIC_CONFIG[topicId || 'etl-pipelines'] || TOPIC_CONFIG['etl-pipelines'];
   const [difficulty, setDifficulty] = useState<GenerateRequest['difficulty']>('intermediate');
   const [numTables, setNumTables] = useState(2);
-  const [skills, setSkills] = useState<string[]>(['JOIN', 'AGGREGATION']);
+  const [skills, setSkills] = useState<string[]>(config.defaultSkills);
   const [industry, setIndustry] = useState('retail');
   const [customIndustry, setCustomIndustry] = useState('');
   const [includeSolutions, setIncludeSolutions] = useState(true);
@@ -68,21 +60,22 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
       focus_skills: skills,
       industry: effectiveIndustry,
       include_solutions: includeSolutions,
+      topic: topicId || 'etl-pipelines',
     });
   };
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-1">Configure Scenario</h2>
-        <p className="text-sm text-gray-500 mb-6">
-          Choose parameters for your data pipeline lab
+      <div className="bg-white/80 backdrop-blur-sm rounded-lg border border-stone-200/60 p-6">
+        <h2 className="text-xl font-semibold text-stone-900 mb-1">Configure Scenario</h2>
+        <p className="text-sm text-stone-500 mb-6">
+          {config.formSubtitle}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Difficulty */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Difficulty</label>
+            <label className="block text-sm font-medium text-stone-700 mb-2">Difficulty</label>
             <div className="flex gap-3">
               {(['beginner', 'intermediate', 'advanced'] as const).map((d) => (
                 <button
@@ -90,10 +83,10 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
                   type="button"
                   onClick={() => setDifficulty(d)}
                   className={`
-                    px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors
+                    px-4 py-2 rounded-md text-sm font-medium capitalize transition-colors font-mono
                     ${difficulty === d
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      ? 'bg-teal-600 text-white shadow-[0_2px_0_0_rgba(0,0,0,0.2)] active:shadow-none active:translate-y-[1px]'
+                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
                     }
                   `}
                 >
@@ -105,7 +98,7 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
 
           {/* Source Tables */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-stone-700 mb-2">
               Source Tables: {numTables}
             </label>
             <input
@@ -114,9 +107,9 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
               max={5}
               value={numTables}
               onChange={(e) => setNumTables(Number(e.target.value))}
-              className="w-full accent-indigo-600"
+              className="w-full accent-teal-600"
             />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <div className="flex justify-between text-xs text-stone-500 mt-1">
               <span>1</span>
               <span>5</span>
             </div>
@@ -124,24 +117,24 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
 
           {/* Focus Skills */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Focus Skills <span className="text-gray-400 font-normal">(select up to 5)</span>
+            <label className="block text-sm font-medium text-stone-700 mb-2">
+              Focus Skills <span className="text-stone-500 font-normal">(select up to 5)</span>
             </label>
             <div className="flex flex-wrap gap-2">
-              {SKILL_OPTIONS.map((skill) => (
+              {config.skills.map((skill) => (
                 <button
-                  key={skill}
+                  key={skill.id}
                   type="button"
-                  onClick={() => toggleSkill(skill)}
+                  onClick={() => toggleSkill(skill.id)}
                   className={`
-                    px-3 py-1.5 rounded-full text-xs font-medium transition-colors
-                    ${skills.includes(skill)
-                      ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    px-3 py-1.5 rounded text-xs font-medium transition-colors font-mono
+                    ${skills.includes(skill.id)
+                      ? 'border border-teal-400 text-teal-700 bg-teal-50/50'
+                      : 'border border-stone-300 text-stone-500 bg-transparent hover:border-stone-400'
                     }
                   `}
                 >
-                  {skill.replace(/_/g, ' ')}
+                  {skill.label}
                 </button>
               ))}
             </div>
@@ -149,7 +142,7 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
 
           {/* Industry / Theme */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Industry / Theme</label>
+            <label className="block text-sm font-medium text-stone-700 mb-2">Industry / Theme</label>
             <div className="flex flex-wrap gap-2">
               {INDUSTRIES.map((ind) => (
                 <button
@@ -157,10 +150,10 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
                   type="button"
                   onClick={() => setIndustry(ind)}
                   className={`
-                    px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                    px-3 py-1.5 rounded text-xs font-medium transition-colors font-mono
                     ${industry === ind
-                      ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      ? 'border border-teal-400 text-teal-700 bg-teal-50/50'
+                      : 'border border-stone-300 text-stone-500 bg-transparent hover:border-stone-400'
                     }
                   `}
                 >
@@ -171,10 +164,10 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
                 type="button"
                 onClick={() => setIndustry(WILD_CARD_SENTINEL)}
                 className={`
-                  px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                  px-3 py-1.5 rounded text-xs font-medium transition-colors font-mono
                   ${industry === WILD_CARD_SENTINEL
-                    ? 'bg-purple-100 text-purple-700 ring-1 ring-purple-300'
-                    : 'bg-purple-50 text-purple-500 hover:bg-purple-100'
+                    ? 'border border-purple-400 text-purple-700 bg-purple-50/50'
+                    : 'border border-stone-300 text-purple-500 bg-transparent hover:border-stone-400'
                   }
                 `}
               >
@@ -184,10 +177,10 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
                 type="button"
                 onClick={() => setIndustry(CUSTOM_SENTINEL)}
                 className={`
-                  px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                  px-3 py-1.5 rounded text-xs font-medium transition-colors font-mono
                   ${industry === CUSTOM_SENTINEL
-                    ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    ? 'border border-teal-400 text-teal-700 bg-teal-50/50'
+                    : 'border border-stone-300 text-stone-500 bg-transparent hover:border-stone-400'
                   }
                 `}
               >
@@ -202,7 +195,7 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
                 maxLength={100}
                 autoFocus
                 placeholder="Your industry, a movie, a celebrity, or whatever you want!"
-                className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="mt-2 w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
               />
             )}
           </div>
@@ -214,9 +207,9 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
               id="include-solutions"
               checked={includeSolutions}
               onChange={(e) => setIncludeSolutions(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="h-4 w-4 rounded border-stone-300 text-teal-600 focus:ring-teal-500"
             />
-            <label htmlFor="include-solutions" className="text-sm text-gray-600">
+            <label htmlFor="include-solutions" className="text-sm text-stone-600">
               Include solution & incorrect solution notebooks in lab
             </label>
           </div>
@@ -226,7 +219,7 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
             <button
               type="submit"
               disabled={loading || skills.length === 0 || (industry === CUSTOM_SENTINEL && customIndustry.trim().length === 0)}
-              className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 bg-teal-600 text-white py-2.5 rounded-md text-sm font-semibold hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_2px_0_0_rgba(0,0,0,0.2)] active:shadow-none active:translate-y-[1px]"
             >
               {loading ? 'Generating...' : 'Generate Scenario'}
             </button>
@@ -235,7 +228,7 @@ export function ScenarioForm({ onGenerate, onDemo, loading, demoMode }: Scenario
                 type="button"
                 onClick={onDemo}
                 disabled={loading}
-                className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                className="px-5 py-2.5 border border-stone-300 rounded-md text-sm font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-50 transition-colors"
               >
                 Use Demo
               </button>

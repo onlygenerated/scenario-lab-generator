@@ -117,7 +117,7 @@ def generate_notebook(blueprint: ScenarioBlueprint) -> str:
 
     cells.append(_code_cell(
         "import pandas as pd\n"
-        "from sqlalchemy import create_engine\n"
+        "from sqlalchemy import create_engine, text\n"
         "\n"
         "source_engine = create_engine('postgresql://labuser:labpass@source-db:5432/source_db')\n"
         "target_engine = create_engine('postgresql://labuser:labpass@target-db:5432/target_db')\n"
@@ -186,7 +186,7 @@ def generate_solution_notebook(blueprint: ScenarioBlueprint) -> str:
     # --- Same setup section as getting_started ---
     cells.append(_code_cell(
         "import pandas as pd\n"
-        "from sqlalchemy import create_engine\n"
+        "from sqlalchemy import create_engine, text\n"
         "\n"
         "# Connection strings\n"
         "source_engine = create_engine('postgresql://labuser:labpass@source-db:5432/source_db')\n"
@@ -518,7 +518,7 @@ def generate_incorrect_notebook(
     # --- Same setup section ---
     cells.append(_code_cell(
         "import pandas as pd\n"
-        "from sqlalchemy import create_engine\n"
+        "from sqlalchemy import create_engine, text\n"
         "\n"
         "# Connection strings\n"
         "source_engine = create_engine('postgresql://labuser:labpass@source-db:5432/source_db')\n"
@@ -600,6 +600,20 @@ def _classify_step(step: "TransformationStep") -> str:
     code_lower = step.solution_code.lower()
     combined = f"{tags_lower} {title_lower}"
 
+    # Data modeling: DDL steps (CREATE TABLE) — check code first for precision
+    if "create table" in code_lower:
+        return "DDL"
+
+    # Data modeling: data migration steps (read source + write to learner-created tables)
+    if any(kw in combined for kw in (
+        "normaliz", "migrat", "populat", "primary_key", "foreign_key",
+        "star_schema", "surrogate", "constraint", "scd",
+    )):
+        if ".to_sql(" in code_lower or "insert into" in code_lower:
+            return "DATA_MIGRATION"
+        # If it has CREATE TABLE in the code, it's DDL even with modeling tags
+        return "DDL" if "create table" in code_lower else "DATA_MIGRATION"
+
     if any(kw in combined for kw in ("join", "merge", "merg")):
         return "JOIN"
     if any(kw in combined for kw in ("filter", "clean", "drop", "remove", "exclude")):
@@ -616,6 +630,8 @@ def _classify_step(step: "TransformationStep") -> str:
         return "TRANSFORMATION"
 
     # Fall back to code-level detection
+    if "create table" in code_lower:
+        return "DDL"
     if "pd.merge(" in code_lower or ".merge(" in code_lower:
         return "JOIN"
     if ".to_sql(" in code_lower:
@@ -649,6 +665,61 @@ def _inject_mistake(step: "TransformationStep", escalation_level: int = 0) -> st
         return _inject_row_affecting_mistake(code, category)
 
     # --- Level 0: semantic mutations (current behavior) ---
+
+    # DDL: remove a constraint from CREATE TABLE (FK, NOT NULL, CHECK, UNIQUE)
+    if category == "DDL":
+        import re
+        # Try removing a FOREIGN KEY clause (most impactful for schema validation)
+        modified = re.sub(
+            r',?\s*FOREIGN\s+KEY\s*\([^)]*\)\s*REFERENCES\s+\w+\s*\([^)]*\)',
+            '',
+            code,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if modified != code:
+            return modified
+        # Try removing a CHECK constraint
+        modified = re.sub(
+            r',?\s*CHECK\s*\([^)]*\)',
+            '',
+            code,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if modified != code:
+            return modified
+        # Try removing NOT NULL from a non-PK column (skip lines with PRIMARY KEY)
+        lines = code.split("\n")
+        for i, line in enumerate(lines):
+            if "NOT NULL" in line.upper() and "PRIMARY" not in line.upper():
+                lines[i] = re.sub(r'\s+NOT\s+NULL', '', line, flags=re.IGNORECASE)
+                return "\n".join(lines)
+        # Try removing UNIQUE constraint
+        modified = re.sub(
+            r',?\s*UNIQUE\s*\([^)]*\)',
+            '',
+            code,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if modified != code:
+            return modified
+        return code
+
+    # DATA_MIGRATION: load only a subset of rows
+    if category == "DATA_MIGRATION":
+        import re
+        # Add .head(1) before .to_sql() — loads only 1 row
+        modified = re.sub(
+            r'(\w+)(\.to_sql\()',
+            r'\1.head(1)\2',
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+        return code
 
     # JOIN: change inner→left OR inner→outer, with regex fallback
     if category == "JOIN":
@@ -751,6 +822,29 @@ def _inject_row_affecting_mistake(code: str, category: str) -> str:
     actually fails validation.
     """
     import re
+
+    # DDL: skip creating the table entirely — information_schema checks will fail
+    if category == "DDL":
+        return (
+            "# Skipping table creation for now\n"
+            "print('TODO: create table')"
+        )
+
+    # DATA_MIGRATION: load only 1 row
+    if category == "DATA_MIGRATION":
+        modified = re.sub(
+            r'(\w+)(\.to_sql\()',
+            r'\1.head(1)\2',
+            code,
+            count=1,
+        )
+        if modified != code:
+            return modified
+        # Fallback: comment out the entire migration
+        return (
+            "# Skipping data migration for now\n"
+            "print('TODO: migrate data')"
+        )
 
     # LOADING: .head(1) before .to_sql() — loads only 1 row
     if category == "LOADING":

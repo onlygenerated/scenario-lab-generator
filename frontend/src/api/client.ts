@@ -38,6 +38,7 @@ export interface GenerateRequest {
   focus_skills: string[];
   industry: string;
   include_solutions?: boolean;
+  topic?: string;
 }
 
 export interface ColumnDefinition {

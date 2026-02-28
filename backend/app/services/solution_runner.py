@@ -82,7 +82,7 @@ def _script_from_solution_code(blueprint: ScenarioBlueprint) -> str:
     """Build script from explicit solution_code fields on each step."""
     lines = [
         "import pandas as pd",
-        "from sqlalchemy import create_engine",
+        "from sqlalchemy import create_engine, text",
         "",
         "source_engine = create_engine('postgresql://labuser:labpass@source-db:5432/source_db')",
         "target_engine = create_engine('postgresql://labuser:labpass@target-db:5432/target_db')",
@@ -208,17 +208,22 @@ def wipe_target_tables(
     blueprint: ScenarioBlueprint,
     docker: DockerClient,
 ) -> None:
-    """TRUNCATE each target table so the student starts with empty tables."""
+    """Reset target tables so the student starts fresh.
+
+    For data-modeling: DROP tables (learner must re-CREATE them).
+    For ETL: TRUNCATE tables (keep schema, clear data).
+    """
     for table in blueprint.target_tables:
         table_name = table.table_name
+        if blueprint.topic == "data-modeling":
+            sql = f'DROP TABLE IF EXISTS "{table_name}" CASCADE;'
+        else:
+            sql = f'TRUNCATE TABLE "{table_name}" CASCADE;'
         try:
             docker.compose.execute(
                 "target-db",
-                [
-                    "psql", "-U", "labuser", "-d", "target_db",
-                    "-c", f'TRUNCATE TABLE "{table_name}" CASCADE;',
-                ],
+                ["psql", "-U", "labuser", "-d", "target_db", "-c", sql],
                 tty=False,
             )
         except Exception as e:
-            logger.warning("Failed to truncate %s: %s", table_name, e)
+            logger.warning("Failed to wipe %s: %s", table_name, e)

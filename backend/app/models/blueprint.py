@@ -162,7 +162,7 @@ class SourceTable(BaseModel):
 class TargetTable(BaseModel):
     """A target table the learner must populate — schema only, no data."""
     table_name: str = Field(..., description="Table name (lowercase, no SQL keywords)")
-    description: str = Field(..., description="What this table should contain after the ETL")
+    description: str = Field(..., description="What this table should contain after the transformation")
     columns: list[ColumnDefinition] = Field(
         ..., min_length=1, max_length=20,
         description="Column definitions for the target table"
@@ -287,3 +287,6 @@ class ScenarioBlueprint(BaseModel):
         "Keep it extremely mild — no real consequences — and encourage trying again. "
         "Keep it under 400 characters."
     )
+
+    # Topic (set by generator after blueprint creation)
+    topic: str = Field(default="etl-pipelines", description="Lab topic for conditional behavior")

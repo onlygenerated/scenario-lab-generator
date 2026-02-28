@@ -1,1 +1,12 @@
 @import "tailwindcss";
+
+@theme {
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+body {
+  background-color: var(--color-stone-50);
+  background-image: radial-gradient(circle, var(--color-stone-300) 0.5px, transparent 0.5px);
+  background-size: 24px 24px;
+}

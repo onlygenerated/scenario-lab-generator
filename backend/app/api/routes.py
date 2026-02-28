@@ -1,4 +1,4 @@
-"""API routes for ScenarioLabGenerator."""
+"""API routes for Labwright."""
 
 from __future__ import annotations
 
@@ -67,8 +67,8 @@ def generate_scenario(request: GenerateRequest) -> GenerateResponse:
     from ..config import settings
 
     logger.info(
-        "Generate request: difficulty=%s, tables=%d, skills=%s, industry=%s",
-        request.difficulty, request.num_source_tables, request.focus_skills, request.industry,
+        "Generate request: difficulty=%s, tables=%d, skills=%s, industry=%s, topic=%s",
+        request.difficulty, request.num_source_tables, request.focus_skills, request.industry, request.topic,
     )
 
     if settings.demo_mode:

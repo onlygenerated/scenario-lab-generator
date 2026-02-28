@@ -109,6 +109,50 @@ const ETL_TIPS: EtlTip[] = [
   { tag: 'TYPE_CASTING', text: 'df.dtypes shows every column\'s type at a glance — always check this right after loading data.' },
   { tag: 'TYPE_CASTING', text: 'When writing to SQL with .to_sql(), pandas infers SQL types. Pass dtype={} to override for precision.' },
 
+  // ── NORMALIZATION ───────────────────────────────────────────────────
+  { tag: 'NORMALIZATION', text: '1NF means every column holds atomic values — no comma-separated lists or nested structures in a single cell.' },
+  { tag: 'NORMALIZATION', text: '2NF removes partial dependencies: every non-key column must depend on the entire primary key, not just part of it.' },
+  { tag: 'NORMALIZATION', text: '3NF removes transitive dependencies: non-key columns should depend on the key, the whole key, and nothing but the key.' },
+  { tag: 'NORMALIZATION', text: 'Denormalized data is faster to read but harder to update. Normalized data is the opposite. Choose based on your use case.' },
+  { tag: 'NORMALIZATION', text: 'A repeating group (e.g., item1, item2, item3 columns) is a 1NF violation — split them into separate rows.' },
+
+  // ── PRIMARY_KEY ────────────────────────────────────────────────────
+  { tag: 'PRIMARY_KEY', text: 'A primary key uniquely identifies each row. It must be NOT NULL and unique — PostgreSQL enforces both automatically.' },
+  { tag: 'PRIMARY_KEY', text: 'SERIAL creates an auto-incrementing integer PK. Use it for surrogate keys when no natural key is obvious.' },
+  { tag: 'PRIMARY_KEY', text: 'Composite primary keys (two+ columns) are valid but make JOINs harder. Prefer a surrogate key unless the combination is truly the identity.' },
+  { tag: 'PRIMARY_KEY', text: 'Natural keys (email, SSN) can change over time. Surrogate keys (auto-increment IDs) are stable and join-friendly.' },
+
+  // ── FOREIGN_KEY ────────────────────────────────────────────────────
+  { tag: 'FOREIGN_KEY', text: 'A foreign key references another table\'s primary key — it enforces referential integrity so orphan rows can\'t exist.' },
+  { tag: 'FOREIGN_KEY', text: 'REFERENCES parent_table(id) — the parent table and column must exist before you can add the FK constraint.' },
+  { tag: 'FOREIGN_KEY', text: 'ON DELETE CASCADE automatically removes child rows when the parent is deleted. Use it intentionally.' },
+  { tag: 'FOREIGN_KEY', text: 'Insert into parent tables first, then child tables. Foreign keys enforce this order.' },
+
+  // ── STAR_SCHEMA ────────────────────────────────────────────────────
+  { tag: 'STAR_SCHEMA', text: 'A star schema has one fact table (metrics/events) surrounded by dimension tables (who, what, where, when).' },
+  { tag: 'STAR_SCHEMA', text: 'Fact tables store measurable events (sales, clicks). Dimension tables describe context (customer, product, date).' },
+  { tag: 'STAR_SCHEMA', text: 'Dimension tables are typically small and wide. Fact tables are tall and narrow. Design accordingly.' },
+
+  // ── SURROGATE_KEY ──────────────────────────────────────────────────
+  { tag: 'SURROGATE_KEY', text: 'A surrogate key is a system-generated identifier (like SERIAL) with no business meaning — stable and efficient for joins.' },
+  { tag: 'SURROGATE_KEY', text: 'When migrating data into a table with SERIAL PK, omit the PK column from INSERT — PostgreSQL auto-generates it.' },
+
+  // ── CONSTRAINT_DESIGN ──────────────────────────────────────────────
+  { tag: 'CONSTRAINT_DESIGN', text: 'NOT NULL prevents missing values. Add it to any column that must always have data — names, dates, foreign keys.' },
+  { tag: 'CONSTRAINT_DESIGN', text: 'UNIQUE ensures no two rows share the same value in a column. Email addresses and usernames are classic examples.' },
+  { tag: 'CONSTRAINT_DESIGN', text: 'CHECK constraints enforce business rules at the database level — e.g., CHECK (price > 0) prevents negative prices.' },
+  { tag: 'CONSTRAINT_DESIGN', text: 'Constraints are your safety net. Even if the app validates data, the database should too — defense in depth.' },
+
+  // ── INDEXING ───────────────────────────────────────────────────────
+  { tag: 'INDEXING', text: 'An index speeds up SELECT queries but slows down INSERT/UPDATE. Add indexes on columns you frequently filter or join on.' },
+  { tag: 'INDEXING', text: 'PostgreSQL automatically creates an index on PRIMARY KEY and UNIQUE columns — you don\'t need to add one manually.' },
+  { tag: 'INDEXING', text: 'CREATE INDEX idx_name ON table(column) — name your indexes clearly so you can identify them later.' },
+
+  // ── SCD (Slowly Changing Dimensions) ───────────────────────────────
+  { tag: 'SCD', text: 'Type 1 SCD: overwrite the old value. Simple but you lose history.' },
+  { tag: 'SCD', text: 'Type 2 SCD: add a new row with effective dates (valid_from, valid_to). Preserves full history but grows the table.' },
+  { tag: 'SCD', text: 'Type 2 SCDs need a surrogate key — the natural key repeats across versions, so it can\'t be the PK alone.' },
+
   // ── GENERAL ───────────────────────────────────────────────────────
   { tag: 'GENERAL', text: 'ETL stands for Extract, Transform, Load — read data, reshape it, write it somewhere useful.' },
   { tag: 'GENERAL', text: 'Always check df.shape and df.head() after each step — catching issues early saves debugging later.' },

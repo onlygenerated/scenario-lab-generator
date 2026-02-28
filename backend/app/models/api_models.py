@@ -24,6 +24,11 @@ class GenerateRequest(BaseModel):
         max_length=100,
         description="Business domain for the scenario (e.g., retail, healthcare, finance)"
     )
+    topic: str = Field(
+        default="etl-pipelines",
+        max_length=50,
+        description="Lab topic (e.g. 'etl-pipelines', 'data-modeling')"
+    )
 
 
 class GenerateResponse(BaseModel):

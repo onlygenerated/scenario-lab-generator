@@ -18,12 +18,12 @@ import httpx
 from ..config import settings
 from ..models.api_models import GenerateRequest
 from ..models.blueprint import ScenarioBlueprint
-from ..prompts.data_pipeline import (
-    REPAIR_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
-    build_repair_prompt,
-    build_user_prompt,
-)
+from ..prompts import data_modeling, data_pipeline
+
+_PROMPT_REGISTRY = {
+    "etl-pipelines": data_pipeline,
+    "data-modeling": data_modeling,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,9 @@ def generate_blueprint(request: GenerateRequest) -> ScenarioBlueprint:
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    user_prompt = build_user_prompt(
+    prompt_module = _PROMPT_REGISTRY.get(request.topic, data_pipeline)
+
+    user_prompt = prompt_module.build_user_prompt(
         difficulty=request.difficulty.value,
         num_source_tables=request.num_source_tables,
         focus_skills=request.focus_skills,
@@ -104,12 +106,12 @@ def generate_blueprint(request: GenerateRequest) -> ScenarioBlueprint:
     # Get the JSON schema from the Pydantic model
     schema = ScenarioBlueprint.model_json_schema()
 
-    logger.info("Generating scenario: difficulty=%s, industry=%s", request.difficulty, request.industry)
+    logger.info("Generating scenario: difficulty=%s, industry=%s, topic=%s", request.difficulty, request.industry, request.topic)
 
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=settings.anthropic_max_tokens,
-        system=SYSTEM_PROMPT,
+        system=prompt_module.SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_prompt}],
         tools=[
             {
@@ -134,6 +136,9 @@ def generate_blueprint(request: GenerateRequest) -> ScenarioBlueprint:
         if block.type == "tool_use" and block.name == "create_scenario_blueprint":
             # Validate through Pydantic
             blueprint = ScenarioBlueprint.model_validate(block.input)
+
+            # Stamp the topic from the request onto the blueprint
+            blueprint = blueprint.model_copy(update={"topic": request.topic})
 
             # Additional security checks
             _validate_blueprint_security(blueprint)
@@ -161,7 +166,9 @@ def repair_blueprint(
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    user_prompt = build_repair_prompt(blueprint, failures)
+    prompt_module = _PROMPT_REGISTRY.get(blueprint.topic, data_pipeline)
+
+    user_prompt = prompt_module.build_repair_prompt(blueprint, failures)
     schema = ScenarioBlueprint.model_json_schema()
 
     logger.info("Repairing blueprint: %d failure(s)", len(failures))
@@ -169,7 +176,7 @@ def repair_blueprint(
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=settings.anthropic_max_tokens,
-        system=REPAIR_SYSTEM_PROMPT,
+        system=prompt_module.REPAIR_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_prompt}],
         tools=[
             {

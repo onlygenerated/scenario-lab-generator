@@ -1,4 +1,4 @@
-# Testing the ScenarioLabGenerator App
+# Testing the Labwright App
 
 ## Prerequisites
 

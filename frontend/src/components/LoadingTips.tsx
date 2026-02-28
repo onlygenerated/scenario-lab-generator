@@ -34,9 +34,9 @@ export function LoadingTips({ skills, intervalMs = 15000 }: LoadingTipsProps) {
   if (tips.length === 0) return null;
 
   return (
-    <div className="mt-10 w-full max-w-lg bg-white rounded-xl shadow-sm border border-gray-200 px-6 pt-4 pb-5 text-center">
-      <p className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Tips</p>
-      <p className="text-base text-gray-600">
+    <div className="mt-10 w-full max-w-lg bg-white/80 backdrop-blur-sm rounded-lg border border-stone-200/60 px-6 pt-4 pb-5 text-center">
+      <p className="text-sm font-semibold text-stone-500 uppercase tracking-wide mb-3 font-mono">Tips</p>
+      <p className="text-base text-stone-600">
         {tips[index].text}
       </p>
     </div>

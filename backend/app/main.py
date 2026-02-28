@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="ScenarioLabGenerator",
+    title="Labwright",
     description="AI-powered scenario-based lab training for data pipeline / ETL skills",
     version="0.1.0",
     lifespan=lifespan,

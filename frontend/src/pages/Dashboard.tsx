@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useParams, Navigate, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { GenerateRequest, ScenarioBlueprint, ValidationResult } from '../api/client';
 import { StepIndicator } from '../components/StepIndicator';
@@ -7,8 +8,12 @@ import { ScenarioForm } from '../components/ScenarioForm';
 import { LabWorkspace } from '../components/LabWorkspace';
 import { ValidationResults } from '../components/ValidationResults';
 import { LoadingTips } from '../components/LoadingTips';
+import { CATEGORIES } from '../data/categories';
 
 export function Dashboard() {
+  const { categoryId, topicId } = useParams<{ categoryId: string; topicId: string }>();
+  const category = CATEGORIES.find((c) => c.id === categoryId);
+  const topic = category?.topics.find((t) => t.id === topicId);
   const [step, setStep] = useState<WorkflowStep>('CONFIGURE');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -22,7 +27,7 @@ export function Dashboard() {
   const [allPassed, setAllPassed] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [includeSolutions, setIncludeSolutions] = useState(true);
+  const [, setIncludeSolutions] = useState(true);
 
   // Elapsed timer for loading states
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -203,21 +208,33 @@ export function Dashboard() {
     setLoadingMessage(null);
   };
 
+  if (!category || !topic || !topic.available) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-stone-900 border-b border-stone-800">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">ScenarioLab</h1>
-            <p className="text-xs text-gray-400">AI-Powered Data Pipeline Training</p>
+            <nav className="flex items-center gap-1.5 text-xs text-stone-500 font-mono mb-0.5">
+              <Link to="/" className="text-teal-400 hover:text-teal-300 transition-colors">
+                labwright
+              </Link>
+              <span className="text-stone-600">/</span>
+              <span>{category.name}</span>
+              <span className="text-stone-600">/</span>
+              <span className="text-stone-300">{topic.name}</span>
+            </nav>
+            <h1 className="text-lg font-bold text-stone-50">{topic.name}</h1>
           </div>
           {step !== 'CONFIGURE' && (
             <button
               onClick={handleReset}
-              className="text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors"
+              className="text-sm text-stone-400 hover:text-stone-200 font-mono cursor-pointer transition-colors"
             >
-              Start Over
+              start over
             </button>
           )}
         </div>
@@ -250,12 +267,11 @@ export function Dashboard() {
         {/* Loading overlay */}
         {loading && loadingMessage && (
           <div className="flex flex-col items-center pt-8">
-            <div className="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
-            <p className="text-sm text-gray-500">
-              {loadingMessage}
+            <p className="text-sm text-stone-500 font-mono">
+              {loadingMessage}<span className="animate-pulse">_</span>
             </p>
-            <p className="text-xs text-gray-400 mt-2 tabular-nums">
-              {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')} elapsed
+            <p className="text-xs text-stone-500 font-mono mt-2 tabular-nums">
+              [{Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')}]
             </p>
             {elapsedSeconds >= MAX_LOADING_SECONDS && (
               <p className="text-xs text-amber-600 mt-1">
@@ -270,12 +286,9 @@ export function Dashboard() {
         {step === 'CONFIGURE' && (
           <>
             <div className="max-w-2xl mx-auto mb-6">
-              <p className="text-sm text-gray-600 leading-relaxed">
-                ScenarioLab generates hands-on practice labs for building <strong>data pipelines</strong> — automated
-                workflows that move and reshape data between systems. You'll practice{' '}
-                <strong>ETL (Extract, Transform, Load)</strong> skills by reading data from source tables, transforming
-                it with Python and SQL, and loading results into a target database. Pick your parameters below and
-                AI will create a unique scenario with its own storyline, sample data, and validation checks.
+              <p className="text-sm text-stone-600 leading-relaxed">
+                Configure your scenario below — AI generates a live lab with sample data, a Jupyter
+                notebook, and automated validation. Pick your skills, pick a theme, and start building.
               </p>
             </div>
             <ScenarioForm
@@ -283,6 +296,7 @@ export function Dashboard() {
               onDemo={handleDemo}
               loading={loading}
               demoMode={true}
+              topicId={topicId}
             />
           </>
         )}
