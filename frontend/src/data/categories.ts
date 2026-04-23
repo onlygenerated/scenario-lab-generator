@@ -30,7 +30,7 @@ export const CATEGORIES: Category[] = [
         id: 'data-modeling',
         name: 'Data Modeling',
         description: 'Design schemas, normalize tables, and define relationships.',
-        available: true,
+        available: false,
       },
       {
         id: 'data-quality',
