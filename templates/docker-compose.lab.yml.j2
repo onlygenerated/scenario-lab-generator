@@ -45,6 +45,7 @@ services:
       retries: 10
 
   jupyter:
+    image: labwright-jupyter:base
     build:
       context: ./jupyter
       dockerfile: Dockerfile

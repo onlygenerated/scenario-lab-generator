@@ -1,0 +1,79 @@
+# Labwright reverse proxy — single-user demo deployment.
+# Place at /etc/caddy/Caddyfile on the VPS.
+#
+# One-time setup on the VPS before `systemctl reload caddy`:
+#   1. caddy hash-password
+#      (enter a password; copy the $2a$... hash it prints)
+#   2. Replace REPLACE_WITH_BCRYPT_HASH below with that hash
+#   3. Build the SPA:  cd /var/www/labwright/frontend && npm ci && npm run build
+#   4. Pre-build the Jupyter image once (avoids slow cold-start per lab):
+#        docker build -t labwright-jupyter:base /var/www/labwright/templates/jupyter/
+#   5. Start backend: cd /var/www/labwright && docker compose up -d
+#
+# DNS:  A record @  -> VPS IP       (for labwright.com)
+#       A record *  -> VPS IP       (only needed if you enable the subdomain lab-routing block below)
+
+labwright.com {
+    basic_auth {
+        demo REPLACE_WITH_BCRYPT_HASH
+    }
+
+    # Backend API + health (proxied to FastAPI on 8000)
+    reverse_proxy /api/* localhost:8000
+    reverse_proxy /health localhost:8000
+
+    # SPA — built output from `npm run build`
+    root * /var/www/labwright/frontend/dist
+    file_server
+    try_files {path} /index.html
+
+    encode gzip
+}
+
+# -----------------------------------------------------------------------------
+# Lab URL routing — pick ONE of the two options below. Neither is enabled
+# by default, so decide, uncomment, and reload Caddy.
+# -----------------------------------------------------------------------------
+
+# OPTION A — Direct port exposure (simplest; used by the current backend).
+#
+# The backend returns URLs like http://localhost:<port>/lab?token=labtoken
+# (see backend/app/services/orchestrator.py:133). On the VPS the user's
+# browser would hit http://labwright.com:<port>/... directly, bypassing Caddy.
+#
+# Requirements:
+#   - ufw allow 8888:8988/tcp
+#   - Accept that lab traffic is plaintext HTTP (Jupyter's token is the only auth)
+#   - Change the backend URL template to use the public hostname instead of
+#     localhost (orchestrator.py:133). Add a LAB_URL_HOST env var if you want
+#     this to stay env-configurable for local dev.
+#
+# No Caddy block needed for this option — Caddy only fronts labwright.com.
+
+# OPTION B — TLS-terminated lab subdomains (recommended if you want TLS everywhere).
+#
+# Each lab is reachable at https://lab-<id>.labwright.com. The backend would
+# need to:
+#   - return `https://lab-<id>.labwright.com/lab?token=...` instead of the
+#     localhost URL
+#   - write a small map file per lab (e.g. /etc/caddy/lab_ports/<id> = <port>)
+#     or expose an API that Caddy can query
+#
+# Caddy config sketch (requires wildcard DNS + wildcard cert on-demand TLS):
+#
+# *.labwright.com {
+#     basic_auth {
+#         demo REPLACE_WITH_BCRYPT_HASH
+#     }
+#     @labid header_regexp host Host ^lab-([a-f0-9]+)\.labwright\.com$
+#     handle @labid {
+#         # Look up the port for this lab id. Simplest: a sidecar service on
+#         # localhost:9000 that returns the port number for the given lab id.
+#         reverse_proxy {
+#             to http://localhost:9000
+#             rewrite /_lookup/{re.labid.1}
+#         }
+#     }
+# }
+#
+# Defer this until Option A isn't good enough.

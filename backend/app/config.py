@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     lab_port_range_start: int = 8888
     lab_port_range_end: int = 8988
     lab_base_dir: str = "./lab_workspaces"
+    lab_url_base: str = "http://localhost"  # Public host the user's browser uses to reach lab Jupyter
 
     # Rate limiting
     generate_rate_limit_per_minute: int = 10

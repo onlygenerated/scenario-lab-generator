@@ -127,10 +127,10 @@ def launch_lab(blueprint: ScenarioBlueprint, include_solutions: bool = True) -> 
         )
 
         # Build and start all services
-        docker.compose.up(detach=True, build=True)
+        docker.compose.up(detach=True, build=False)
 
         session.status = LabStatus.running
-        session.jupyter_url = f"http://localhost:{jupyter_port}/lab/tree/1_INSTRUCTIONS.md?token=labtoken"
+        session.jupyter_url = f"{settings.lab_url_base}:{jupyter_port}/lab/tree/1_INSTRUCTIONS.md?token=labtoken"
 
     except Exception as e:
         session.status = LabStatus.error
