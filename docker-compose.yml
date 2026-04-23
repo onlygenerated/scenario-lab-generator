@@ -15,10 +15,12 @@ services:
       - ./templates:/app/templates
       - ./demo:/app/demo
       - /var/run/docker.sock:/var/run/docker.sock
+      # Mount lab workspaces at the SAME absolute path on both host and container so
+      # `docker compose --file <path>` (executed via the host daemon) can find files the
+      # backend wrote from inside the container. LAB_BASE_DIR comes from .env.
+      - ${LAB_BASE_DIR:-./lab_workspaces}:${LAB_BASE_DIR:-./lab_workspaces}
     env_file:
       - .env
-    environment:
-      - LAB_BASE_DIR=/app/lab_workspaces
 
   frontend:
     build:

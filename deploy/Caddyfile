@@ -18,16 +18,28 @@ labwright.com {
         demo REPLACE_WITH_BCRYPT_HASH
     }
 
-    # Backend API + health (proxied to FastAPI on 8000)
-    reverse_proxy /api/* localhost:8000
-    reverse_proxy /health localhost:8000
-
-    # SPA — built output from `npm run build`
-    root * /var/www/labwright/frontend/dist
-    file_server
-    try_files {path} /index.html
-
     encode gzip
+
+    # Lab URLs point at http://labwright.com:<port> (Jupyter doesn't do TLS).
+    # Disabling HSTS so the browser doesn't force-upgrade http→https on lab ports.
+    # max-age=0 also tells any browser that previously cached HSTS to forget it.
+    header Strict-Transport-Security "max-age=0"
+
+    # Backend API — proxied to FastAPI on 8000
+    handle /api/* {
+        reverse_proxy localhost:8000
+    }
+
+    handle /health {
+        reverse_proxy localhost:8000
+    }
+
+    # SPA — built output from `npm run build`. Catches everything else.
+    handle {
+        root * /var/www/labwright/frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
 }
 
 # -----------------------------------------------------------------------------

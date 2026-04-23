@@ -214,8 +214,11 @@ Paste this (right-click in PowerShell to paste), replacing the API key with your
 ANTHROPIC_API_KEY=sk-ant-your-real-key-here
 DEMO_MODE=true
 CORS_ORIGINS=["https://labwright.com"]
-LAB_URL_BASE=https://labwright.com
+LAB_URL_BASE=http://labwright.com
+LAB_BASE_DIR=/var/www/labwright/lab_workspaces
 ```
+
+Note `LAB_URL_BASE` is `http://` not `https://` — lab Jupyter servers don't do TLS, so the browser reaches them over plain HTTP on ports 8888–8988. The main site stays HTTPS via Caddy.
 
 Save: press `Ctrl+O`, then Enter, then `Ctrl+X`.
 
