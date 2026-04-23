@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
+from ..config import settings
 from ..models.api_models import (
     FeedbackResponse,
     GenerateRequest,
@@ -47,6 +49,23 @@ def _load_demo_blueprint() -> GenerateResponse:
     raw = json.loads(DEMO_BLUEPRINT_PATH.read_text(encoding="utf-8"))
     blueprint = ScenarioBlueprint.model_validate(raw)
     return GenerateResponse(blueprint=blueprint)
+
+
+# --- Internal endpoints (called by infrastructure, not the browser) ---
+
+_LAB_HOST_RE = re.compile(r"^lab-(\d+)\.labwright\.com$")
+
+
+@router.get("/internal/cert-ok")
+def cert_ok(domain: str) -> Response:
+    """Caddy on_demand_tls `ask` endpoint — gate Let's Encrypt cert issuance to valid lab subdomains."""
+    m = _LAB_HOST_RE.match(domain)
+    if not m:
+        return Response(status_code=403)
+    port = int(m.group(1))
+    if not (settings.lab_port_range_start <= port <= settings.lab_port_range_end):
+        return Response(status_code=403)
+    return Response(status_code=200)
 
 
 # --- Demo endpoints ---

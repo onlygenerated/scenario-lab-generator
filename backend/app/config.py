@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     lab_port_range_start: int = 8888
     lab_port_range_end: int = 8988
     lab_base_dir: str = "./lab_workspaces"
-    lab_url_base: str = "http://localhost"  # Public host the user's browser uses to reach lab Jupyter
+    # Jupyter URL template. `{port}` is substituted with the dynamically-allocated port.
+    # Default works for local dev; on VPS set to e.g.
+    #   https://lab-{port}.labwright.com/lab/tree/1_INSTRUCTIONS.md?token=labtoken
+    lab_url_template: str = "http://localhost:{port}/lab/tree/1_INSTRUCTIONS.md?token=labtoken"
 
     # Rate limiting
     generate_rate_limit_per_minute: int = 10

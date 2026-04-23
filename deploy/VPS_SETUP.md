@@ -38,8 +38,12 @@ You do this in the Hostinger web panel. No SSH yet.
    - Name: `www`
    - Points to: `<your-VPS-IP>`
    - TTL: `300`
+7. Add a **wildcard A record** (needed for lab subdomains like `lab-8923.labwright.com`):
+   - Name: `*`
+   - Points to: `<your-VPS-IP>`
+   - TTL: `300`
 
-**You should see:** Two A records listed, both pointing to your VPS IP.
+**You should see:** Three A records listed (`@`, `www`, `*`), all pointing to your VPS IP.
 
 **Then wait ~5 minutes**, and verify at https://dnschecker.org — type `labwright.com`, pick type A. Your VPS IP should show up in most locations. If half the map is still showing old IPs, wait another 5 min.
 
@@ -103,7 +107,7 @@ From here on, **when you need admin rights, prefix the command with `sudo`**. It
 
 ## Phase 4 — Firewall
 
-Only let through SSH, web traffic, and the lab port range.
+Only let through SSH and web traffic. Labs are reached via Caddy on port 443, not directly on their Jupyter ports, so the 8888–8988 range does **not** need to be open to the public internet.
 
 **Do this:**
 
@@ -111,13 +115,12 @@ Only let through SSH, web traffic, and the lab port range.
 sudo ufw allow OpenSSH
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-sudo ufw allow 8888:8988/tcp
 sudo ufw --force enable
 ```
 
 **You should see:** `Firewall is active and enabled on system startup.`
 
-**Check it:** `sudo ufw status` — should list ALLOW rules for 22 (SSH), 80, 443, and 8888:8988.
+**Check it:** `sudo ufw status` — should list ALLOW rules for 22 (SSH), 80, and 443.
 
 ---
 
@@ -214,11 +217,11 @@ Paste this (right-click in PowerShell to paste), replacing the API key with your
 ANTHROPIC_API_KEY=sk-ant-your-real-key-here
 DEMO_MODE=true
 CORS_ORIGINS=["https://labwright.com"]
-LAB_URL_BASE=http://labwright.com
+LAB_URL_TEMPLATE=https://lab-{port}.labwright.com/lab/tree/1_INSTRUCTIONS.md?token=labtoken
 LAB_BASE_DIR=/var/www/labwright/lab_workspaces
 ```
 
-Note `LAB_URL_BASE` is `http://` not `https://` — lab Jupyter servers don't do TLS, so the browser reaches them over plain HTTP on ports 8888–8988. The main site stays HTTPS via Caddy.
+`LAB_URL_TEMPLATE` is the full URL pattern handed to the browser for each launched lab. `{port}` gets substituted with the Jupyter container's host port. Caddy fronts these subdomains with Let's Encrypt TLS on demand (see Phase 11 Caddyfile).
 
 Save: press `Ctrl+O`, then Enter, then `Ctrl+X`.
 
@@ -439,7 +442,9 @@ sudo systemctl start caddy
 | Site loads but shows browser login loop | Wrong bcrypt hash in Caddyfile | Re-run `caddy hash-password`, re-paste, `sudo systemctl reload caddy` |
 | `docker compose ps` shows backend restarting | Usually `.env` error | `docker compose logs backend` to see the error |
 | "Launch Lab" button spins forever | Out of memory, or Jupyter image missing | `docker stats` to check; re-run Phase 9 if `labwright-jupyter:base` isn't listed in `docker image ls` |
-| Lab opens but shows `localhost` | `LAB_URL_BASE` not set in `.env` | Add the line, `docker compose restart backend` |
+| Lab URL shows `localhost` | `LAB_URL_TEMPLATE` not set in `.env` | Add the line, `docker compose up -d --force-recreate backend` |
+| First click on a fresh lab is slow (1–3s) | Caddy fetching Let's Encrypt cert on demand | Expected; subsequent loads on that port are fast (cert cached 90 days) |
+| Lab tab shows "Your connection is not private" | Caddy's `ask` endpoint rejected the cert request — check backend is up and reachable at `http://localhost:8000/api/internal/cert-ok?domain=lab-8900.labwright.com` (should return 200) | `curl` the URL locally on the VPS; fix backend if it errors |
 | Everything broken after `apt upgrade` | Docker or Caddy got replaced | `sudo systemctl restart docker caddy` |
 
 ---
