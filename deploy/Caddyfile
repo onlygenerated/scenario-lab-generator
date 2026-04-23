@@ -55,7 +55,7 @@ labwright.com {
 
     @lab_subdomain header_regexp host Host ^lab-(\d+)\.labwright\.com$
     handle @lab_subdomain {
-        reverse_proxy http://localhost:{re.host.1}
+        reverse_proxy localhost:{re.host.1}
     }
 
     # Anything not matching the lab-<port> pattern gets a 404.
